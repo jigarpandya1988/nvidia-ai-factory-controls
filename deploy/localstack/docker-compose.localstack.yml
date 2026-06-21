@@ -1,0 +1,71 @@
+# =============================================================================
+# LocalStack Docker Compose — Mock AWS Services Locally
+# =============================================================================
+# Provides local AWS service emulation for testing the full cloud path
+# without an AWS account. Runs IoT Core, Timestream, S3, Lambda, and SNS.
+#
+# Usage:
+#   docker compose -f deploy/localstack/docker-compose.localstack.yml up
+#
+# After startup, init-aws.sh provisions IoT things, Timestream tables, etc.
+# The CDK stack can target LocalStack with:
+#   cdklocal deploy --all --context siteId=local-01
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ===========================================================================
+  # LocalStack (AWS Service Emulator)
+  # ===========================================================================
+  localstack:
+    image: localstack/localstack:3.3
+    container_name: aifactory-localstack
+    ports:
+      - "4566:4566"     # LocalStack Gateway (all services)
+      - "4510-4559:4510-4559"  # External service port range
+    environment:
+      # Services to enable
+      SERVICES: iot,timestream,s3,lambda,sns,sts,iam,cloudwatch,logs
+      # Default region
+      DEFAULT_REGION: us-west-2
+      # Persist data between restarts
+      PERSISTENCE: 1
+      # Debug logging (set to 1 for verbose)
+      DEBUG: 0
+      # Lambda execution mode
+      LAMBDA_EXECUTOR: docker
+      # Docker socket for Lambda containers
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # Edge port
+      GATEWAY_LISTEN: 0.0.0.0:4566
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ===========================================================================
+  # AWS CLI (for ad-hoc commands against LocalStack)
+  # ===========================================================================
+  awscli:
+    image: amazon/aws-cli:2.15.0
+    container_name: aifactory-awscli
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-west-2
+      AWS_ENDPOINT_URL: http://localstack:4566
+    entrypoint: [""]
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+volumes:
+  localstack-data:

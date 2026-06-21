@@ -1,0 +1,210 @@
+# =============================================================================
+# Full Local Docker Stack — NVIDIA AI Factory Controls
+# =============================================================================
+# Runs the entire AI Factory simulation + monitoring stack on a single machine.
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up
+#
+# Services:
+#   - NATS (message broker with JetStream)
+#   - Plant Simulator (publishes telemetry to NATS)
+#   - SCADA Backend + Frontend (port 4000 API, port 3001 UI)
+#   - Grafana (port 3000, provisioned dashboards)
+#   - InfluxDB (port 8086, time-series storage)
+#   - Telegraf (NATS → InfluxDB bridge)
+# =============================================================================
+
+version: "3.9"
+
+x-common-env: &common-env
+  NATS_URL: nats://nats:4222
+  SITE_ID: us-west-01
+
+services:
+  # ===========================================================================
+  # NATS Server (Edge Message Broker)
+  # ===========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: aifactory-nats
+    ports:
+      - "4222:4222"   # Client connections
+      - "8222:8222"   # Monitoring/metrics
+    volumes:
+      - ./src/edge-gateway/nats-broker/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats-data:/data/jetstream
+    command: ["--config", "/etc/nats/nats-server.conf", "--js"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================================================
+  # NATS Init (Create JetStream Streams)
+  # ===========================================================================
+  nats-init:
+    image: natsio/nats-box:0.14
+    container_name: aifactory-nats-init
+    depends_on:
+      nats:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating JetStream streams..."
+        nats -s nats://nats:4222 stream add TELEMETRY \
+          --subjects="aifactory.*.*.telemetry.>" \
+          --retention=limits \
+          --max-msgs=-1 \
+          --max-bytes=1073741824 \
+          --max-age=24h \
+          --storage=file \
+          --replicas=1 \
+          --discard=old \
+          --no-deny-delete \
+          --no-deny-purge \
+          --defaults 2>/dev/null || true
+
+        nats -s nats://nats:4222 stream add COMMANDS \
+          --subjects="aifactory.*.*.commands.>" \
+          --retention=workqueue \
+          --max-msgs=-1 \
+          --max-bytes=104857600 \
+          --max-age=1h \
+          --storage=file \
+          --replicas=1 \
+          --discard=old \
+          --no-deny-delete \
+          --no-deny-purge \
+          --defaults 2>/dev/null || true
+
+        nats -s nats://nats:4222 stream add ALARMS \
+          --subjects="aifactory.*.*.alarms.>" \
+          --retention=limits \
+          --max-msgs=-1 \
+          --max-bytes=536870912 \
+          --max-age=168h \
+          --storage=file \
+          --replicas=1 \
+          --discard=old \
+          --no-deny-delete \
+          --no-deny-purge \
+          --defaults 2>/dev/null || true
+
+        echo "JetStream streams created successfully."
+    restart: "no"
+
+  # ===========================================================================
+  # Plant Simulator (Python — publishes to NATS as if it's the OPC UA bridges)
+  # ===========================================================================
+  plant-simulator:
+    build:
+      context: ./simulation
+      dockerfile: Dockerfile
+    container_name: aifactory-plant-sim
+    environment:
+      <<: *common-env
+      SCENARIO: training_ramp
+      PUBLISH_RATE_HZ: "10"
+      NUM_RACKS: "8"
+      NUM_CDUS: "2"
+    depends_on:
+      nats:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ===========================================================================
+  # SCADA (Backend API + Frontend UI)
+  # ===========================================================================
+  scada:
+    build:
+      context: ./scada
+      dockerfile: Dockerfile
+    container_name: aifactory-scada
+    ports:
+      - "4000:4000"   # Backend API
+      - "3001:3001"   # Frontend UI
+    environment:
+      <<: *common-env
+      PORT: "4000"
+      FRONTEND_PORT: "3001"
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ===========================================================================
+  # InfluxDB (Time-Series Database)
+  # ===========================================================================
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: aifactory-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: aifactory-local
+      DOCKER_INFLUXDB_INIT_ORG: aifactory
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: local-dev-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Telegraf (NATS Consumer → InfluxDB Writer)
+  # ===========================================================================
+  telegraf:
+    image: telegraf:1.29-alpine
+    container_name: aifactory-telegraf
+    environment:
+      INFLUXDB_TOKEN: local-dev-token
+      NATS_URL: nats://nats:4222
+    volumes:
+      - ./deploy/docker/config/telegraf/telegraf.local.conf:/etc/telegraf/telegraf.conf:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Grafana (Visualization & Dashboards)
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:10.2-oss
+    container_name: aifactory-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: aifactory
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      INFLUXDB_TOKEN: local-dev-token
+    volumes:
+      - ./deploy/docker/config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/docker/config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nats-data:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:

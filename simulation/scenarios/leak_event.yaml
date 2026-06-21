@@ -1,0 +1,43 @@
+# =============================================================================
+# Scenario: Leak Event — Coolant leak detected at t=20s
+# =============================================================================
+# Normal 60% load for 20s, then a coolant leak is detected in zone 1.
+# Tests emergency response to fluid loss.
+#
+# Control system should:
+#   - Detect leak (sensor trips)
+#   - Enter safe state (CDU shutdown or reduced operation)
+#   - Raise critical alarm
+#   - System should not crash
+# =============================================================================
+
+name: leak_event
+description: "Normal 60% load then coolant leak at t=20s"
+duration_s: 60
+
+workload_profile:
+  - time_s: 0
+    load_fraction: 0.6
+  - time_s: 60
+    load_fraction: 0.6
+
+faults:
+  - type: leak
+    trigger_time_s: 20.0
+    zone: 1
+    description: "Coolant leak detected in zone 1"
+
+ambient:
+  dry_bulb_c: 25.0
+  wet_bulb_c: 20.0
+
+control_settings:
+  pump_speed_initial_pct: 45
+  valve_position_initial_pct: 50
+  supply_temp_setpoint_c: 35.0
+
+pass_criteria:
+  leak_detected: true
+  safe_state_entered: true
+  no_crash: true
+  description: "Leak detected, CDU enters safe-state"

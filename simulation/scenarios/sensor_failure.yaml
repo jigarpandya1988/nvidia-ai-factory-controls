@@ -1,0 +1,41 @@
+# =============================================================================
+# Scenario: Sensor Failure — Supply temp sensor fails mid-operation
+# =============================================================================
+# Normal 70% load for 30s, then supply temp sensor fails (returns -999).
+# Tests graceful degradation of the controller when primary feedback is lost.
+#
+# Control system should:
+#   - Detect sensor failure via validator
+#   - Switch to fallback value (last known good or configured default)
+#   - Continue operation without crash
+#   - Log degraded state
+# =============================================================================
+
+name: sensor_failure
+description: "Normal load then supply temp sensor failure at t=30s"
+duration_s: 90
+
+workload_profile:
+  - time_s: 0
+    load_fraction: 0.7
+  - time_s: 90
+    load_fraction: 0.7
+
+faults:
+  - type: sensor_supply
+    trigger_time_s: 30.0
+    description: "Supply temperature sensor fails (out of range)"
+
+ambient:
+  dry_bulb_c: 25.0
+  wet_bulb_c: 20.0
+
+control_settings:
+  pump_speed_initial_pct: 50
+  valve_position_initial_pct: 50
+  supply_temp_setpoint_c: 35.0
+
+pass_criteria:
+  no_crash: true
+  uses_fallback: true
+  description: "Controller degrades gracefully (uses fallback), no crash"

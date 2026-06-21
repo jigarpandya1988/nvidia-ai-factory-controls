@@ -1,0 +1,151 @@
+{
+  "dashboard": {
+    "title": "GPU Thermal",
+    "uid": "gpu-thermal",
+    "timezone": "utc",
+    "refresh": "5s",
+    "tags": ["gpu", "thermal", "cooling"],
+    "panels": [
+      {
+        "id": 1,
+        "title": "Per-Rack GPU Max Temperature",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 16, "x": 0, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"gpu\" and r._field == \"MaxJunctionTemp\")\n  |> aggregateWindow(every: 10s, fn: max)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "celsius",
+            "min": 30,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"value": 30, "color": "blue"},
+                {"value": 60, "color": "green"},
+                {"value": 78, "color": "yellow"},
+                {"value": 83, "color": "orange"},
+                {"value": 90, "color": "red"}
+              ]
+            },
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Thermal Headroom",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"gpu\" and r._field == \"MaxJunctionTemp\")\n  |> last()\n  |> map(fn: (r) => ({r with _value: 83.0 - r._value}))"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "celsius",
+            "min": 0,
+            "max": 50,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 5, "color": "orange"},
+                {"value": 10, "color": "yellow"},
+                {"value": 20, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "GPU Throttle Events",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"gpu\" and r._field == \"ThrottleActive\")\n  |> aggregateWindow(every: 1m, fn: max)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 80
+            },
+            "color": {"fixedColor": "red", "mode": "fixed"},
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "Normal"}}},
+              {"type": "value", "options": {"1": {"text": "THROTTLED"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Coolant Supply vs Return Temperature",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"cooling\" and r._field =~ /SupplyTemp|ReturnTemp/)\n  |> aggregateWindow(every: 10s, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "celsius",
+            "custom": {"lineWidth": 2, "fillOpacity": 15}
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "GPU Power by Rack",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 14},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"gpu\" and r._field == \"TotalPower_kW\")\n  |> aggregateWindow(every: 10s, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "kwatt"}
+        }
+      },
+      {
+        "id": 6,
+        "title": "GPU Temperature Heatmap",
+        "type": "heatmap",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 14},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"gpu\" and r._field == \"MaxJunctionTemp\")\n  |> aggregateWindow(every: 30s, fn: max)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "scaleDistribution": {"type": "linear"}
+            }
+          }
+        },
+        "options": {
+          "color": {"scheme": "Spectral"},
+          "yAxis": {"unit": "celsius"}
+        }
+      }
+    ]
+  }
+}

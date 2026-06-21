@@ -1,0 +1,159 @@
+{
+  "dashboard": {
+    "title": "Power Overview",
+    "uid": "power-overview",
+    "timezone": "utc",
+    "refresh": "5s",
+    "tags": ["power", "pue"],
+    "panels": [
+      {
+        "id": 1,
+        "title": "PUE (Power Usage Effectiveness)",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field == \"PUE\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 1.0,
+            "max": 2.0,
+            "thresholds": {
+              "steps": [
+                {"value": 1.0, "color": "green"},
+                {"value": 1.15, "color": "yellow"},
+                {"value": 1.3, "color": "orange"},
+                {"value": 1.5, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Total Facility Power",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field == \"TotalFacilityPower_kW\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "kwatt",
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1500, "color": "yellow"},
+                {"value": 2000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "IT Equipment Power",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field == \"IT_Power_kW\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "kwatt"}
+        }
+      },
+      {
+        "id": 4,
+        "title": "Cooling Infrastructure Power",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field == \"Cooling_Power_kW\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "kwatt"}
+        }
+      },
+      {
+        "id": 5,
+        "title": "Energy Consumption (24h)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field =~ /Power_kW/)\n  |> aggregateWindow(every: 5m, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "kwatt"}
+        }
+      },
+      {
+        "id": 6,
+        "title": "Phase Voltages (3-Phase)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field =~ /Voltage_Phase/)\n  |> aggregateWindow(every: 10s, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "volt",
+            "min": 380,
+            "max": 420,
+            "thresholds": {
+              "steps": [
+                {"value": 390, "color": "red"},
+                {"value": 395, "color": "yellow"},
+                {"value": 400, "color": "green"},
+                {"value": 415, "color": "yellow"},
+                {"value": 420, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "PUE Trend (7 Days)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"power\" and r._field == \"PUE\")\n  |> aggregateWindow(every: 1h, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 1.0,
+            "max": 1.5,
+            "thresholds": {
+              "steps": [
+                {"value": 1.0, "color": "green"},
+                {"value": 1.2, "color": "yellow"},
+                {"value": 1.4, "color": "red"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

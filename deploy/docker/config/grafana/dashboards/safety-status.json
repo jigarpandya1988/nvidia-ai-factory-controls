@@ -1,0 +1,133 @@
+{
+  "dashboard": {
+    "title": "Safety Status",
+    "uid": "safety-status",
+    "timezone": "utc",
+    "refresh": "2s",
+    "tags": ["safety", "epo", "fire", "leak"],
+    "panels": [
+      {
+        "id": 1,
+        "title": "Safety Permit Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field == \"SafetyPermit\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"1": {"text": "ACTIVE", "color": "green"}}},
+              {"type": "value", "options": {"0": {"text": "TRIPPED", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "EPO Zone Status",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field =~ /EPO_Zone/)\n  |> last()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Fire Detection Zones",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field =~ /Fire_Zone/)\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "CLEAR", "color": "green"}}},
+              {"type": "value", "options": {"1": {"text": "ALARM", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Leak Detection Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field =~ /Leak_Zone/)\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DRY", "color": "green"}}},
+              {"type": "value", "options": {"1": {"text": "LEAK!", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Safety Event Log (24h)",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"safety_events\")\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "EPO Armed / Disarmed History",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field == \"EPO_Armed\")\n  |> aggregateWindow(every: 1m, fn: last)"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Safety Chain Integrity",
+        "type": "gauge",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"safety\" and r._field == \"SafetyChainHealth_pct\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "report_type": "PUE & Compliance Report",
+  "generated_at": "2026-06-21T19:48:16Z",
+  "data_points": 600,
+  "duration_s": 59.9,
+  "pue": {
+    "average_pue": 1.1,
+    "hourly_pue": [
+      1.1
+    ],
+    "energy_breakdown": {
+      "it_power_kw": 205.0,
+      "cooling_power_kw": 16.4,
+      "overhead_power_kw": 4.1,
+      "total_power_kw": 225.5
+    },
+    "peak_gpu_temp_c": 76.2,
+    "avg_supply_temp_c": 36.0
+  },
+  "compliance": {
+    "standard": "ASHRAE W32 (Liquid Cooling)",
+    "all_compliant": true,
+    "checks": [
+      {
+        "parameter": "Supply Temp (max)",
+        "value": 36.9,
+        "limit": 45.0,
+        "unit": "\u00b0C",
+        "compliant": true,
+        "severity": "info"
+      },
+      {
+        "parameter": "Supply Temp (recommended max)",
+        "value": 36.9,
+        "limit": 40.0,
+        "unit": "\u00b0C",
+        "compliant": true,
+        "severity": "info"
+      },
+      {
+        "parameter": "Supply Temp (min)",
+        "value": 34.8,
+        "limit": 2.0,
+        "unit": "\u00b0C",
+        "compliant": true,
+        "severity": "info"
+      },
+      {
+        "parameter": "GPU Junction Temp (max)",
+        "value": 76.2,
+        "limit": 83.0,
+        "unit": "\u00b0C",
+        "compliant": true,
+        "severity": "info"
+      }
+    ]
+  }
+}

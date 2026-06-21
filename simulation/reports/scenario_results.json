@@ -1,0 +1,88 @@
+{
+  "timestamp": "2026-06-21T19:54:52Z",
+  "total_scenarios": 5,
+  "passed": 5,
+  "failed": 0,
+  "all_passed": true,
+  "scenarios": [
+    {
+      "name": "burst_load",
+      "description": "Periodic burst load \u00e2\u20ac\u201d 80% for 10s, 30% for 10s, repeated",
+      "duration_s": 120,
+      "passed": true,
+      "checks": {
+        "no_crash": true,
+        "gpu_max_temp_c": true,
+        "supply_temp_recovery_s": true
+      },
+      "gpu_max_temp": 78.1,
+      "supply_temp_max": 39.58,
+      "supply_temp_min": 34.25,
+      "runtime_ms": 433.3,
+      "error": null
+    },
+    {
+      "name": "leak_event",
+      "description": "Normal 60% load then coolant leak at t=20s",
+      "duration_s": 60,
+      "passed": true,
+      "checks": {
+        "no_crash": true,
+        "leak_detected": true,
+        "safe_state_entered": true
+      },
+      "gpu_max_temp": 75.2,
+      "supply_temp_max": 38.84,
+      "supply_temp_min": 33.8,
+      "runtime_ms": 167.9,
+      "error": null
+    },
+    {
+      "name": "pump_trip",
+      "description": "Normal 70% load then pump trips at t=30s",
+      "duration_s": 90,
+      "passed": true,
+      "checks": {
+        "no_crash": true,
+        "alarm_raised": true
+      },
+      "gpu_max_temp": 98.7,
+      "supply_temp_max": 39.93,
+      "supply_temp_min": 34.76,
+      "runtime_ms": 281.2,
+      "error": null
+    },
+    {
+      "name": "sensor_failure",
+      "description": "Normal load then supply temp sensor failure at t=30s",
+      "duration_s": 90,
+      "passed": true,
+      "checks": {
+        "no_crash": true,
+        "uses_fallback": true
+      },
+      "gpu_max_temp": 88.4,
+      "supply_temp_max": 39.92,
+      "supply_temp_min": 34.77,
+      "runtime_ms": 286.4,
+      "error": null
+    },
+    {
+      "name": "training_ramp",
+      "description": "Large model training job startup",
+      "duration_s": 120,
+      "passed": true,
+      "checks": {
+        "no_crash": true,
+        "gpu_max_temp_c": true,
+        "settling_time_s": true,
+        "supply_temp_deviation_c": true
+      },
+      "gpu_max_temp": 94.0,
+      "supply_temp_max": 40.47,
+      "supply_temp_min": 34.65,
+      "runtime_ms": 385.0,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PUE &amp; Compliance Report</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; }
+    h1 { color: #76b900; }
+    h2 { color: #a0a0a0; border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+    .pue-gauge { font-size: 3rem; font-weight: bold; color: #4ade80; }
+    .card { background: #16213e; border-radius: 8px; padding: 1.5rem; margin: 1rem 0; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #333; }
+    th { color: #76b900; }
+    .energy-bar { height: 20px; border-radius: 4px; margin: 2px 0; }
+    .meta { color: #666; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>NVIDIA AI Factory — PUE &amp; Compliance Report</h1>
+  <p class="meta">Generated: 2026-06-21T19:48:16Z | Data points: 600</p>
+
+  <div class="card">
+    <h2>Power Usage Effectiveness (PUE)</h2>
+    <div class="pue-gauge">1.100</div>
+    <p>Average over reporting period</p>
+  </div>
+
+  <div class="card">
+    <h2>Energy Breakdown</h2>
+    <table>
+      <tr><th>Category</th><th>Power (kW)</th><th>% of Total</th></tr>
+      <tr>
+        <td>IT Equipment</td>
+        <td>205.0</td>
+        <td>90.9%</td>
+      </tr>
+      <tr>
+        <td>Cooling Infrastructure</td>
+        <td>16.4</td>
+        <td>7.3%</td>
+      </tr>
+      <tr>
+        <td>Overhead (UPS, Lighting)</td>
+        <td>4.1</td>
+        <td>1.8%</td>
+      </tr>
+      <tr style="font-weight:bold;">
+        <td>Total Facility</td>
+        <td>225.5</td>
+        <td>100%</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>ASHRAE Compliance — ASHRAE W32 (Liquid Cooling)</h2>
+    <p>Overall: ✅ COMPLIANT</p>
+    <table>
+      <tr><th></th><th>Parameter</th><th>Value</th><th>Limit</th><th>Severity</th></tr>
+      
+            <tr style="">
+              <td>✅</td>
+              <td>Supply Temp (max)</td>
+              <td>36.9 °C</td>
+              <td>45.0 °C</td>
+              <td>info</td>
+            </tr>
+            <tr style="">
+              <td>✅</td>
+              <td>Supply Temp (recommended max)</td>
+              <td>36.9 °C</td>
+              <td>40.0 °C</td>
+              <td>info</td>
+            </tr>
+            <tr style="">
+              <td>✅</td>
+              <td>Supply Temp (min)</td>
+              <td>34.8 °C</td>
+              <td>2.0 °C</td>
+              <td>info</td>
+            </tr>
+            <tr style="">
+              <td>✅</td>
+              <td>GPU Junction Temp (max)</td>
+              <td>76.2 °C</td>
+              <td>83.0 °C</td>
+              <td>info</td>
+            </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Thermal Summary</h2>
+    <table>
+      <tr><td>Peak GPU Temperature</td><td>76.2 °C</td></tr>
+      <tr><td>Average Supply Temperature</td><td>36.0 °C</td></tr>
+    </table>
+  </div>
+</body>
+</html>

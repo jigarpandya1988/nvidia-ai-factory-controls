@@ -1,0 +1,14 @@
+{
+  "train_mae": 0.3534,
+  "test_mae": 0.4952,
+  "train_r2": 0.8439,
+  "test_r2": 0.726,
+  "feature_importance": {
+    "gpu_power_kw": 0.0938,
+    "ambient_temp_c": 0.0,
+    "pump_speed_pct": 0.5222,
+    "valve_position_pct": 0.384
+  },
+  "n_samples": 480,
+  "prediction_horizon_s": 60
+}

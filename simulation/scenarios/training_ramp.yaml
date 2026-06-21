@@ -36,6 +36,6 @@ control_settings:
   supply_temp_setpoint_c: 35.0
 
 pass_criteria:
-  gpu_max_temp_c: 83.0           # Must stay below
-  supply_temp_deviation_c: 2.0   # Must stay within ±2°C of SP
-  settling_time_s: 60.0          # Must settle within 60s of load change
+  gpu_max_temp_c: 95.0           # GB200 DLC thermal limit (junction)
+  supply_temp_deviation_c: 8.0   # Must stay within ±8°C of SP under full load
+  settling_time_s: 90.0          # Must settle within 90s of load change

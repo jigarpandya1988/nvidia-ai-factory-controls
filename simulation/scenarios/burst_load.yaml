@@ -1,0 +1,56 @@
+# =============================================================================
+# Scenario: Burst Load — Periodic high/low workload cycles
+# =============================================================================
+# Simulates inference bursts: 80% for 10s, then drops to 30% for 10s, repeat.
+# Tests the cooling system's ability to handle rapid load transitions
+# without overshooting or undershooting.
+#
+# Control system should:
+#   - Track load changes with minimal supply temp excursion
+#   - Recover supply temp within 15s of load drop
+#   - Keep GPU under thermal limits at all times
+# =============================================================================
+
+name: burst_load
+description: "Periodic burst load — 80% for 10s, 30% for 10s, repeated"
+duration_s: 120
+
+workload_profile:
+  - time_s: 0
+    load_fraction: 0.8
+  - time_s: 10
+    load_fraction: 0.3
+  - time_s: 20
+    load_fraction: 0.8
+  - time_s: 30
+    load_fraction: 0.3
+  - time_s: 40
+    load_fraction: 0.8
+  - time_s: 50
+    load_fraction: 0.3
+  - time_s: 60
+    load_fraction: 0.8
+  - time_s: 70
+    load_fraction: 0.3
+  - time_s: 80
+    load_fraction: 0.8
+  - time_s: 90
+    load_fraction: 0.3
+  - time_s: 100
+    load_fraction: 0.8
+  - time_s: 110
+    load_fraction: 0.3
+
+ambient:
+  dry_bulb_c: 25.0
+  wet_bulb_c: 20.0
+
+control_settings:
+  pump_speed_initial_pct: 50
+  valve_position_initial_pct: 50
+  supply_temp_setpoint_c: 35.0
+
+pass_criteria:
+  gpu_max_temp_c: 95.0
+  supply_temp_recovery_s: 15.0
+  description: "GPU < 95°C, supply temp recovers within 15s of load drop"

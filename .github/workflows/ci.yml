@@ -153,3 +153,61 @@ jobs:
 
       - name: Syntax Check
         run: ansible-playbook deploy/ansible/playbook-ipc-setup.yml --syntax-check -i deploy/ansible/inventory.yml
+
+  # ===========================================================================
+  # Job 6: Integration Test (Plant Simulation Scenarios)
+  # ===========================================================================
+  integration-test:
+    name: Integration Test (Simulation Scenarios)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install simulation dependencies
+        run: |
+          pip install pyyaml numpy
+          pip install -r tests/python/requirements-test.txt
+
+      - name: Run all simulation scenarios
+        run: python simulation/run_all_scenarios.py
+
+      - name: Upload scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-results
+          path: simulation/reports/scenario_results.json
+          retention-days: 30
+
+      - name: Check for critical failures
+        if: always()
+        run: |
+          RESULTS_FILE="simulation/reports/scenario_results.json"
+          if [ ! -f "$RESULTS_FILE" ]; then
+            echo "ERROR: scenario_results.json not found — scenarios did not complete"
+            exit 1
+          fi
+
+          # Parse results and check for failures
+          ALL_PASSED=$(python -c "
+          import json, sys
+          with open('$RESULTS_FILE') as f:
+              data = json.load(f)
+          print(data.get('all_passed', False))
+          failed = data.get('failed', 0)
+          total = data.get('total_scenarios', 0)
+          passed = data.get('passed', 0)
+          print(f'Results: {passed}/{total} passed, {failed} failed', file=sys.stderr)
+          if not data.get('all_passed', False):
+              # Print failed scenarios
+              for s in data.get('scenarios', []):
+                  if not s.get('passed'):
+                      print(f\"  FAILED: {s['name']} — {s.get('error', 'check failures')}\", file=sys.stderr)
+              sys.exit(1)
+          ")
+          echo "All simulation scenarios passed."

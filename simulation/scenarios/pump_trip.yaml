@@ -1,0 +1,41 @@
+# =============================================================================
+# Scenario: Pump Trip — CDU pump fails at t=30s
+# =============================================================================
+# Normal 70% load for 30s, then pump on CDU-01 trips (mechanical failure).
+# Tests safety response when coolant flow is lost.
+#
+# Control system should:
+#   - Detect loss of flow
+#   - Raise alarm
+#   - GPU temp will rise but system should not crash
+#   - Could switch to backup CDU or reduce load (future feature)
+# =============================================================================
+
+name: pump_trip
+description: "Normal 70% load then pump trips at t=30s"
+duration_s: 90
+
+workload_profile:
+  - time_s: 0
+    load_fraction: 0.7
+  - time_s: 90
+    load_fraction: 0.7
+
+faults:
+  - type: pump_trip
+    trigger_time_s: 30.0
+    description: "CDU-01 pump mechanical failure"
+
+ambient:
+  dry_bulb_c: 25.0
+  wet_bulb_c: 20.0
+
+control_settings:
+  pump_speed_initial_pct: 50
+  valve_position_initial_pct: 50
+  supply_temp_setpoint_c: 35.0
+
+pass_criteria:
+  alarm_raised: true
+  no_crash: true
+  description: "Alarm raised, GPU temp rises but system doesn't crash"

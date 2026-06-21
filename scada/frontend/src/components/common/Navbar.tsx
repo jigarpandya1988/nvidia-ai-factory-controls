@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useProcessStore } from '../../stores/useProcessStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 const links = [
   { to: '/', label: 'Overview' },
@@ -14,6 +15,8 @@ const links = [
 
 export function Navbar() {
   const connected = useProcessStore(s => s.connected);
+  const user = useAuthStore(s => s.user);
+  const logout = useAuthStore(s => s.logout);
 
   return (
     <nav className="bg-surface-2 border-b border-surface-4 px-4 py-2 flex items-center justify-between">
@@ -45,6 +48,22 @@ export function Navbar() {
         </div>
         <span className="text-gray-600">|</span>
         <span className="text-gray-500">Site: US-WEST-01</span>
+        {user && (
+          <>
+            <span className="text-gray-600">|</span>
+            <span className="text-gray-300">{user.displayName}</span>
+            <span className="text-gray-500 bg-surface-3 px-1.5 py-0.5 rounded">
+              {user.role}
+            </span>
+            <button
+              onClick={logout}
+              className="text-gray-500 hover:text-red-400 transition-colors"
+              title="Sign out"
+            >
+              ✕
+            </button>
+          </>
+        )}
       </div>
     </nav>
   );
