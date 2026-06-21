@@ -1,0 +1,106 @@
+(* =============================================================================
+    FB_PowerDistribution — Power Distribution Monitoring & Control
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Monitors utility feed, UPS, 800VDC bus, calculates PUE, manages ATS.
+     Core FB for IPC-01 power subsystem.
+   
+   EXTENDS: FB_Base
+   COMPOSES: FB_SensorValidator (voltage, current, frequency)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_PowerDistribution EXTENDS FB_Base
+VAR_INPUT
+    (* --- Raw Voltage Inputs [V] --- *)
+    fRaw_Voltage_L1      : REAL;
+    fRaw_Voltage_L2      : REAL;
+    fRaw_Voltage_L3      : REAL;
+    
+    (* --- Raw Current Inputs [A] --- *)
+    fRaw_Current_L1      : REAL;
+    fRaw_Current_L2      : REAL;
+    fRaw_Current_L3      : REAL;
+    
+    (* --- Frequency [Hz] --- *)
+    fRaw_Frequency       : REAL;
+    
+    (* --- Power Meter Readings (from Modbus) [kW] --- *)
+    fMeter_TotalFacility : REAL;
+    fMeter_ITEquipment   : REAL;
+    fMeter_Cooling       : REAL;
+    
+    (* --- UPS Status --- *)
+    bUPS_OnBattery       : BOOL;
+    fUPS_BatterySOC      : REAL;        (* [%] *)
+    bUPS_Fault           : BOOL;
+    
+    (* --- ATS Status --- *)
+    bATS_SourceA_OK      : BOOL;
+    bATS_SourceB_OK      : BOOL;
+    bATS_OnSourceA       : BOOL;
+    
+    (* --- Configuration --- *)
+    fNominalVoltage      : REAL := 480.0;
+    fNominalFrequency    : REAL := 60.0;
+    fVoltageHighPct      : REAL := 110.0;   (* Alarm at 110% nominal *)
+    fVoltageLowPct       : REAL := 90.0;    (* Alarm at 90% nominal *)
+    fFreqDeadband        : REAL := 0.5;     (* ±0.5 Hz *)
+    fPhaseImbalanceLimit : REAL := 20.0;    (* Alarm at 20% imbalance *)
+    fPUE_HighLimit       : REAL := 1.15;    (* PUE alarm threshold *)
+    
+    fCycleTime_s         : REAL := 0.01;    (* 10ms cycle *)
+END_VAR
+
+VAR_OUTPUT
+    stStatus             : ST_PowerStatus;
+END_VAR
+
+VAR
+    (* --- Sensor Validators --- *)
+    _fbSens_V_L1         : FB_SensorValidator;
+    _fbSens_V_L2         : FB_SensorValidator;
+    _fbSens_V_L3         : FB_SensorValidator;
+    _fbSens_Freq         : FB_SensorValidator;
+    
+    (* --- Calculated --- *)
+    _fAvgVoltage         : REAL;
+    _fMaxVoltage         : REAL;
+    _fMinVoltage         : REAL;
+    _fPhaseImbalance     : REAL;
+    _fPUE                : REAL;
+    _fPUE_Filtered       : REAL;
+    _fFilterAlpha        : REAL := 0.01;    (* PUE low-pass filter *)
+    
+    (* --- Energy Accumulation --- *)
+    _fEnergy_kWh         : REAL;
+    _fEnergyIT_kWh       : REAL;
+    
+    (* --- Alarm Timers --- *)
+    _tonVoltageHigh      : TON;
+    _tonVoltageLow       : TON;
+    _tonFreqDev          : TON;
+    _tonPhaseImbalance   : TON;
+    _tonPUE_High         : TON;
+    _tAlarmDelay         : TIME := T#5S;
+    _tPUE_Delay          : TIME := T#60S;   (* PUE needs 60s to confirm *)
+    
+    (* --- Edge Triggers --- *)
+    _rtrigUPS_Battery    : R_TRIG;          (* UPS went to battery *)
+    _ftrigUPS_Battery    : F_TRIG;          (* UPS returned to mains *)
+    _rtrigATS_Transfer   : R_TRIG;          (* ATS source transfer *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+SUPER^();

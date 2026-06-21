@@ -1,0 +1,90 @@
+(* =============================================================================
+    I_DataSubscriber — Interface for Data Collection Backends
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Abstraction for RECEIVING data from external sources.
+     Used to collect GPU telemetry, setpoints from SCADA, commands from cloud.
+   
+   SUPPORTED BACKENDS (via implementing FBs):
+     • FB_Subscriber_OPCUA  — OPC UA client (read from other IPCs/servers)
+     • FB_Subscriber_MQTT   — MQTT subscribe (cloud commands, GPU data)
+     • FB_Subscriber_Modbus — Modbus TCP master (read from field devices)
+     • FB_Subscriber_REST   — HTTP/REST client (DCGM API for GPU telemetry)
+   
+   DATA FLOW:
+     External Source → I_DataSubscriber → FB_DataCollector → GVL_CrossTask
+                                                                  ↓
+                                                          Control_Task reads
+   
+   RACE CONDITION NOTE:
+     Subscribers run in Communication_Task. They write to staging buffers.
+     The staging buffer is copied to GVL_CrossTask atomically at the end
+     of the Communication_Task cycle.
+   ============================================================================= *)
+
+INTERFACE I_DataSubscriber
+
+(* --- Lifecycle --- *)
+
+METHOD M_Connect : BOOL
+(* Initialize the subscription backend. Returns TRUE on success. *)
+END_METHOD
+
+METHOD M_Disconnect : BOOL
+(* Close the subscription connection. *)
+END_METHOD
+
+PROPERTY bIsConnected : BOOL
+GET;
+END_PROPERTY
+
+(* --- Subscription Management --- *)
+
+METHOD M_Subscribe : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Path to subscribe: 'GPU/Row1/MaxTemp' *)
+    nUpdateRate_ms : UDINT;         (* Desired update rate [ms]; 0 = on-change *)
+END_VAR
+END_METHOD
+
+(* --- Data Retrieval --- *)
+
+METHOD M_ReadFloat : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Path to read *)
+END_VAR
+VAR_OUTPUT
+    fValue       : REAL;            (* Last received value *)
+    bFresh       : BOOL;            (* TRUE if updated since last read *)
+    nQuality     : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+    nAge_ms      : UDINT;           (* Milliseconds since last update *)
+END_VAR
+END_METHOD
+
+METHOD M_ReadBool : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);
+END_VAR
+VAR_OUTPUT
+    bValue       : BOOL;
+    bFresh       : BOOL;
+    nQuality     : USINT;
+    nAge_ms      : UDINT;
+END_VAR
+END_METHOD
+
+(* --- Health --- *)
+
+PROPERTY nSubscriptionCount : UDINT
+(* Number of active subscriptions *)
+GET;
+END_PROPERTY
+
+PROPERTY nStaleCount : UDINT
+(* Number of subscriptions that haven't updated within expected interval *)
+GET;
+END_PROPERTY
+
+END_INTERFACE

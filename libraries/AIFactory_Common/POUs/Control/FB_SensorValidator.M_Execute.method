@@ -1,0 +1,163 @@
+(* =============================================================================
+    FB_SensorValidator.M_Execute — Sensor Validation Pipeline
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   EXECUTION ORDER (every scan):
+     1. Range check
+     2. Rate-of-change check
+     3. Redundancy voting (if enabled)
+     4. Frozen signal detection
+     5. Low-pass filtering (only on valid data)
+     6. Output assembly
+   
+   FAULT LOGIC:
+     Any single check failure increments _nFaultCount.
+     If _nFaultCount >= _nMaxFaultCount → output marked INVALID.
+     When all checks pass → _nFaultCount decrements (hysteresis).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    bRangeOK            : BOOL;
+    bRateOK             : BOOL;
+    bRedundancyOK       : BOOL;
+    bFrozenOK           : BOOL;
+    fRateOfChange       : REAL;
+    fSelectedValue      : REAL;
+    bAllChecksPass      : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── First Scan Initialization ──────────────────────────────────────────── *)
+IF _bFirstScan THEN
+    _fPrevValue := fRawInput;
+    _fFiltered := fRawInput;
+    _fFrozenLastValue := fRawInput;
+    _bFirstScan := FALSE;
+    
+    (* Compute filter alpha from time constant *)
+    IF fFilterTimeConst > 0.0 AND fCycleTime_s > 0.0 THEN
+        _fFilterAlpha := fCycleTime_s / (fFilterTimeConst + fCycleTime_s);
+    ELSE
+        _fFilterAlpha := 1.0; (* No filtering *)
+    END_IF
+    
+    M_Execute := TRUE;
+    RETURN;
+END_IF
+
+
+(* ─── CHECK 1: Range Validation ─────────────────────────────────────────── *)
+bRangeOK := (fRawInput >= fRangeLow) AND (fRawInput <= fRangeHigh);
+bAlm_OutOfRange := NOT bRangeOK;
+
+
+(* ─── CHECK 2: Rate of Change ───────────────────────────────────────────── *)
+IF fMaxRateOfChange > 0.0 AND fCycleTime_s > 0.0 THEN
+    fRateOfChange := ABS(fRawInput - _fPrevValue) / fCycleTime_s;
+    bRateOK := (fRateOfChange <= fMaxRateOfChange);
+ELSE
+    fRateOfChange := 0.0;
+    bRateOK := TRUE;
+END_IF
+bAlm_RateExceeded := NOT bRateOK;
+
+
+(* ─── CHECK 3: Redundancy Voting ────────────────────────────────────────── *)
+IF bUseRedundancy THEN
+    bRedundancyOK := ABS(fRawInput - fRawInput_Redundant) <= fRedundancyTolerance;
+    
+    (* If redundant, use average of both when they agree *)
+    IF bRedundancyOK THEN
+        fSelectedValue := (fRawInput + fRawInput_Redundant) / 2.0;
+    ELSE
+        (* Disagreement: use the one within range, or fallback *)
+        IF bRangeOK THEN
+            fSelectedValue := fRawInput;
+        ELSIF (fRawInput_Redundant >= fRangeLow) AND (fRawInput_Redundant <= fRangeHigh) THEN
+            fSelectedValue := fRawInput_Redundant;
+        ELSE
+            fSelectedValue := fFallbackValue;
+        END_IF
+    END_IF
+ELSE
+    bRedundancyOK := TRUE;
+    fSelectedValue := fRawInput;
+END_IF
+bAlm_RedundancyFault := NOT bRedundancyOK;
+
+
+(* ─── CHECK 4: Frozen Signal Detection ──────────────────────────────────── *)
+IF ABS(fRawInput - _fFrozenLastValue) > 0.01 THEN
+    (* Signal is changing — reset timer *)
+    _fFrozenTimer_s := 0.0;
+    _fFrozenLastValue := fRawInput;
+    bFrozenOK := TRUE;
+ELSE
+    (* Signal unchanged — accumulate time *)
+    _fFrozenTimer_s := _fFrozenTimer_s + fCycleTime_s;
+    bFrozenOK := (_fFrozenTimer_s < fFrozenTimeout_s);
+END_IF
+bAlm_Frozen := NOT bFrozenOK;
+
+
+(* ─── FAULT COUNTER (hysteresis) ─────────────────────────────────────────── *)
+bAllChecksPass := bRangeOK AND bRateOK AND bRedundancyOK AND bFrozenOK;
+
+IF NOT bAllChecksPass THEN
+    IF _nFaultCount < _nMaxFaultCount THEN
+        _nFaultCount := _nFaultCount + 1;
+    END_IF
+ELSE
+    IF _nFaultCount > 0 THEN
+        _nFaultCount := _nFaultCount - 1;
+    END_IF
+END_IF
+
+
+(* ─── LOW-PASS FILTER (only on valid data) ──────────────────────────────── *)
+IF _nFaultCount < _nMaxFaultCount THEN
+    (* Data considered valid — apply filter *)
+    _fFiltered := _fFiltered + _fFilterAlpha * (fSelectedValue - _fFiltered);
+ELSE
+    (* Data invalid — hold last good value or use fallback *)
+    _fFiltered := fFallbackValue;
+END_IF
+
+
+(* ─── OUTPUT ASSEMBLY ────────────────────────────────────────────────────── *)
+stOutput.fValue := _fFiltered;
+stOutput.fRawValue := fRawInput;
+stOutput.bValid := (_nFaultCount < _nMaxFaultCount);
+stOutput.bFresh := TRUE;
+stOutput.fRateOfChange := fRateOfChange;
+stOutput.nConsecutiveFaults := _nFaultCount;
+stOutput.fRangeLow := fRangeLow;
+stOutput.fRangeHigh := fRangeHigh;
+stOutput.fFallbackValue := fFallbackValue;
+stOutput.fMaxRateOfChange := fMaxRateOfChange;
+stOutput.sTag := sTag;
+
+IF stOutput.bValid THEN
+    stOutput.eQuality := E_CommStatus.OK;
+ELSIF _nFaultCount > 0 THEN
+    stOutput.eQuality := E_CommStatus.DEGRADED;
+ELSE
+    stOutput.eQuality := E_CommStatus.FAULT;
+END_IF
+
+
+(* ─── STORE PREVIOUS VALUE ───────────────────────────────────────────────── *)
+_fPrevValue := fRawInput;
+
+M_Execute := TRUE;

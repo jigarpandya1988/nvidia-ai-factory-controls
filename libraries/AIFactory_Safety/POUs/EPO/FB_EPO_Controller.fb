@@ -1,0 +1,172 @@
+(* =============================================================================
+    FB_EPO_Controller — Emergency Power Off Controller
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Manages zone-based Emergency Power Off with SIL 2 integrity.
+     Monitors dual-channel EPO pushbuttons, automatic trip sources,
+     and drives fail-safe relay outputs to power contactors.
+   
+   SAFETY INTEGRITY: SIL 2 (IEC 61508)
+   RESPONSE TIME: < 100 ms from activation to contactor opening
+   
+   DESIGN PRINCIPLES:
+     1. FAIL-SAFE: Relay de-energized = power OFF. Loss of control = safe.
+     2. DUAL-CHANNEL: Both input channels must agree. Discrepancy = fault.
+     3. LATCHING: Trips persist until PHYSICAL operator reset (key+button).
+     4. PESSIMISTIC: Any doubt → trip. False trips are acceptable; missed
+        trips are NOT.
+     5. INDEPENDENCE: This FB has NO dependency on other IPCs for trip
+        decisions. It can trip autonomously.
+   
+   RACE CONDITION PREVENTION:
+     • Runs in Safety_Task (2ms cycle, highest priority).
+     • CODESYS Safety_Task is non-preemptible — no interruption mid-scan.
+     • Trip latches are BOOL arrays — each element is atomically written.
+     • Status output (ST_EPO_ZoneStatus array) copied atomically at end.
+     • Reset requires SUSTAINED input (3 seconds) — debounces any glitch.
+   
+   HARDWIRED OUTPUTS:
+     EPO relay outputs are DIRECTLY wired to power contactors.
+     They operate independently of software — if the IPC crashes,
+     relays de-energize (fail-safe) and power is cut.
+   
+   EXTENDS: FB_Base (lifecycle, watchdog)
+   IMPLEMENTS: I_SafetyMonitored (safety chain participation)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_EPO_Controller EXTENDS FB_Base IMPLEMENTS I_SafetyMonitored
+VAR_INPUT
+    (* ─── EPO Pushbutton Inputs (dual-channel, normally closed) ───
+       Wiring: NC contacts. In normal state both channels = FALSE.
+       When button pressed: both channels = TRUE.
+       If only one channel changes → wiring fault. *)
+    bEPO_Ch1             : ARRAY[1..8] OF BOOL;  (* Channel A per button *)
+    bEPO_Ch2             : ARRAY[1..8] OF BOOL;  (* Channel B per button *)
+    
+    (* ─── Automatic Trip Sources (from other subsystems) ─── *)
+    bTrip_Fire           : BOOL;    (* Fire detection system confirmed fire *)
+    bTrip_LeakMajor      : BOOL;    (* Major coolant leak (flooding risk) *)
+    bTrip_Seismic        : BOOL;    (* Seismic event above threshold *)
+    bTrip_ThermalRunaway : BOOL;    (* Battery/equipment thermal runaway *)
+    
+    (* ─── Zone Configuration ───
+       Maps each button (1..8) to a zone (1..8).
+       Multiple buttons can map to the same zone. *)
+    anButtonToZone       : ARRAY[1..8] OF USINT := [1,2,3,4,5,6,7,8];
+    
+    (* ─── Reset Inputs (ALL required simultaneously for 3 seconds) ─── *)
+    bResetKey            : BOOL;    (* Physical key switch — maintained contact *)
+    bResetButton         : BOOL;    (* Reset pushbutton — momentary *)
+    bResetAuthorized     : BOOL;    (* Access control authorization *)
+    
+    (* ─── Test Mode (inhibits relay output, NOT trip logic) ─── *)
+    bTestMode            : BOOL;    (* TRUE = relays not driven, logic still runs *)
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.002;  (* Safety task cycle [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Relay Outputs (to power contactors) ───
+       TRUE = relay ENERGIZED = power ON.
+       FALSE = relay DE-ENERGIZED = power OFF (SAFE STATE). *)
+    bRelay               : ARRAY[1..8] OF BOOL;
+    
+    (* ─── Status ─── *)
+    astZoneStatus        : ARRAY[1..8] OF ST_EPO_ZoneStatus;
+    bSystemArmed         : BOOL;            (* System operational, monitoring *)
+    bAnyZoneTripped      : BOOL;            (* At least one zone tripped *)
+    bResetRequired       : BOOL;            (* Operator reset needed *)
+    bAnyInputFault       : BOOL;            (* Dual-channel fault detected *)
+    nTrippedZoneCount    : USINT;           (* Number of tripped zones *)
+END_VAR
+
+VAR
+    (* ─── Trip Latches (one per zone) ─── *)
+    _abTripLatch         : ARRAY[1..8] OF BOOL;
+    
+    (* ─── Dual-Channel Monitoring ─── *)
+    _atonDiscrepancy     : ARRAY[1..8] OF TON;
+    _tDiscrepancyMax     : TIME := T#200MS;  (* Max allowed channel mismatch *)
+    _abChannelFault      : ARRAY[1..8] OF BOOL;
+    
+    (* ─── Reset Sequence ─── *)
+    _tonResetHold        : TON;
+    _tResetHoldTime      : TIME := T#3S;    (* Must hold all 3 inputs for 3s *)
+    _rtrigResetComplete  : R_TRIG;          (* Rising edge: reset timer done *)
+    
+    (* ─── Edge Triggers for Auto-Trip Sources ─── *)
+    (* R_TRIG ensures we capture the MOMENT of trip for timestamping,
+       but the latch logic itself uses level (held high = stay tripped). *)
+    _rtrigFire           : R_TRIG;          (* Rising edge: fire trip activated *)
+    _rtrigLeak           : R_TRIG;          (* Rising edge: leak trip activated *)
+    _rtrigSeismic        : R_TRIG;          (* Rising edge: seismic detected *)
+    _rtrigThermal        : R_TRIG;          (* Rising edge: thermal runaway *)
+    
+    (* ─── Safety Interface ─── *)
+    _bSafetyPermit       : BOOL := TRUE;
+    _eSafetyState        : E_SafetyState := E_SafetyState.SAFE;
+    
+    (* ─── Loop Variable ─── *)
+    _i                   : USINT;
+END_VAR
+
+VAR CONSTANT
+    (* ─── Constants ─── *)
+    C_MAX_ZONES          : USINT := 8;
+    C_TRIP_SOURCE_MANUAL : USINT := 100;    (* Trip source: manual button *)
+    C_TRIP_SOURCE_FIRE   : USINT := 200;    (* Trip source: fire system *)
+    C_TRIP_SOURCE_LEAK   : USINT := 201;    (* Trip source: leak *)
+    C_TRIP_SOURCE_SEISMIC: USINT := 202;    (* Trip source: seismic *)
+    C_TRIP_SOURCE_THERMAL: USINT := 203;    (* Trip source: thermal *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* SAFETY CRITICAL: Trip evaluation runs BEFORE base class lifecycle.
+   Even if the FB is "disabled" or "faulted", trip inputs are ALWAYS
+   monitored and relays are ALWAYS driven to safe state.
+   
+   The base class lifecycle only controls whether diagnostics and
+   status publishing run — it NEVER prevents safety action. *)
+
+(* ─── UNCONDITIONAL: Drive relay outputs based on trip latches ────────────── *)
+(* This runs FIRST, every scan, regardless of any other state.
+   If the code below this point crashes, relays are already safe. *)
+bAnyZoneTripped := FALSE;
+nTrippedZoneCount := 0;
+
+FOR _i := 1 TO C_MAX_ZONES DO
+    IF _abTripLatch[_i] THEN
+        bAnyZoneTripped := TRUE;
+        nTrippedZoneCount := nTrippedZoneCount + 1;
+        
+        (* FAIL-SAFE: Tripped zone → relay OFF (de-energized) *)
+        IF NOT bTestMode THEN
+            bRelay[_i] := FALSE;
+        END_IF
+        astZoneStatus[_i].bTripped := TRUE;
+        astZoneStatus[_i].bRelayEnergized := FALSE;
+    ELSE
+        (* Zone OK → relay ON (energized = power flowing) *)
+        bRelay[_i] := TRUE;
+        astZoneStatus[_i].bTripped := FALSE;
+        astZoneStatus[_i].bRelayEnergized := TRUE;
+    END_IF
+END_FOR
+
+bResetRequired := bAnyZoneTripped;
+
+(* ─── Now call base class for lifecycle management ────────────────────────── *)
+SUPER^();

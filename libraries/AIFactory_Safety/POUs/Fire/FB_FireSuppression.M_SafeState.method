@@ -1,0 +1,46 @@
+(* =============================================================================
+    FB_FireSuppression.M_SafeState — Fail-Safe Output Enforcement
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   SAFE-STATE DEFINITION:
+     bSuppressRelease = FALSE → Do NOT discharge agent
+     bEvacAlarm = FALSE → No evacuation alarm
+     bTripRequest = FALSE → No EPO trip request
+     bDamperClose = FALSE → Dampers remain in current position
+   
+   CRITICAL:
+     The safe state for fire suppression is to NOT discharge.
+     A false discharge is costly and disruptive. If the controller
+     faults or is disabled, we do NOT release agent — manual
+     intervention is required.
+   
+     This method is IDEMPOTENT.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Drive all outputs to safe values ──────────────────────────────────────── *)
+bSuppressRelease := FALSE;      (* Do NOT discharge agent *)
+bEvacAlarm := FALSE;            (* Silence alarms *)
+bTripRequest := FALSE;          (* No EPO request *)
+bDamperClose := FALSE;          (* Release damper command *)
+fCountdownRemaining := 0.0;
+eState := _eState;              (* Report actual internal state *)
+
+(* Safety interface: report safe since we are not actively threatening *)
+_bSafetyPermit := TRUE;
+_eSafetyState := E_SafetyState.SAFE;
+_bHasActiveAlarm := FALSE;
+
+M_SafeState := TRUE;

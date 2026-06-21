@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB-Telemetry
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: aifactory
+      defaultBucket: telemetry
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}
+    isDefault: true
+
+  - name: InfluxDB-System
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: aifactory
+      defaultBucket: system_metrics
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}

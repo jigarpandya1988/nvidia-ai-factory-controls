@@ -1,0 +1,45 @@
+(* =============================================================================
+    FB_DataCollector.M_AddSubscriber — Register a Data Source Backend
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   USAGE:
+     // Receive GPU telemetry via REST:
+     fbDataCollector.M_AddSubscriber(refSubscriber := fbREST_GPUData);
+     
+     // Receive cloud commands via MQTT:
+     fbDataCollector.M_AddSubscriber(refSubscriber := fbMQTT_Commands);
+     
+     // Read data from other IPCs via OPC UA:
+     fbDataCollector.M_AddSubscriber(refSubscriber := fbOPCUA_OtherIPCs);
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_AddSubscriber : BOOL
+VAR_INPUT
+    refSubscriber : I_DataSubscriber;   (* Reference to subscriber instance *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF _nSubscriberCount >= C_MAX_SUBSCRIBERS THEN
+    M_AddSubscriber := FALSE;
+    RETURN;
+END_IF
+
+IF refSubscriber = 0 THEN
+    M_AddSubscriber := FALSE;
+    RETURN;
+END_IF
+
+_nSubscriberCount := _nSubscriberCount + 1;
+_arefSubscribers[_nSubscriberCount] := refSubscriber;
+
+M_AddSubscriber := TRUE;

@@ -1,0 +1,109 @@
+(* =============================================================================
+    I_PeerExchange — Interface for Peer-to-Peer IPC Data Exchange
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Defines the contract for DIRECT IPC-to-IPC data sharing without
+     routing through the edge gateway. Used for:
+       • Safety permit (IPC-04 → all IPCs, < 10ms latency)
+       • Power shed command (IPC-01 → IPC-02, < 50ms)
+       • GPU thermal emergency (IPC-02 → IPC-01, coordinate power)
+       • Health heartbeats (all IPCs monitor each other)
+   
+   WHY PEER-TO-PEER:
+     The edge gateway runs at 100ms cycle and adds network hops.
+     Safety-critical data (permit, emergency stop) needs:
+       • < 10ms latency (one control cycle)
+       • Deterministic delivery (no queuing)
+       • Fail-safe on loss (timeout → assume worst case)
+   
+   TRANSPORT OPTIONS:
+     1. OPC UA Direct — Each IPC reads from peer's OPC UA server
+     2. UDP Multicast — Custom fast protocol for time-critical data
+     3. EtherCAT — If IPCs share a physical EtherCAT network
+     4. Shared Ethernet (raw) — Minimal-overhead custom frames
+   
+   This interface abstracts the transport. The FB_PeerExchange_OPCUA
+   and FB_PeerExchange_UDP implementations provide the actual transport.
+   ============================================================================= *)
+
+INTERFACE I_PeerExchange
+
+(* --- Connection --- *)
+
+METHOD M_Connect : BOOL
+VAR_INPUT
+    sPeerAddress : STRING(64);      (* IP or OPC UA URL of peer *)
+    sPeerName    : STRING(32);      (* Logical name: 'IPC-04-Safety' *)
+END_VAR
+END_METHOD
+
+METHOD M_Disconnect : BOOL
+END_METHOD
+
+PROPERTY bPeerAlive : BOOL
+(* TRUE if peer is responding within timeout. *)
+GET;
+END_PROPERTY
+
+PROPERTY nLatency_us : UDINT
+(* Round-trip latency to peer in microseconds. *)
+GET;
+END_PROPERTY
+
+(* --- Publish (send TO peer) --- *)
+
+METHOD M_SendFloat : BOOL
+VAR_INPUT
+    sTag         : STRING(64);      (* Data tag name *)
+    fValue       : REAL;            (* Value to send *)
+END_VAR
+END_METHOD
+
+METHOD M_SendBool : BOOL
+VAR_INPUT
+    sTag         : STRING(64);
+    bValue       : BOOL;
+END_VAR
+END_METHOD
+
+METHOD M_SendStruct : BOOL
+VAR_INPUT
+    sTag         : STRING(64);
+    pData        : POINTER TO BYTE; (* Pointer to struct data *)
+    nSize        : UDINT;           (* Size in bytes *)
+END_VAR
+END_METHOD
+
+(* --- Subscribe (receive FROM peer) --- *)
+
+METHOD M_ReceiveFloat : BOOL
+VAR_INPUT
+    sTag         : STRING(64);
+END_VAR
+VAR_OUTPUT
+    fValue       : REAL;
+    bFresh       : BOOL;            (* Updated since last read *)
+    nAge_ms      : UDINT;           (* Milliseconds since last update *)
+END_VAR
+END_METHOD
+
+METHOD M_ReceiveBool : BOOL
+VAR_INPUT
+    sTag         : STRING(64);
+END_VAR
+VAR_OUTPUT
+    bValue       : BOOL;
+    bFresh       : BOOL;
+    nAge_ms      : UDINT;
+END_VAR
+END_METHOD
+
+(* --- Health --- *)
+
+METHOD M_Kick : BOOL
+(* Send heartbeat to peer. Call every cycle. *)
+END_METHOD
+
+END_INTERFACE

@@ -1,0 +1,24 @@
+(* =============================================================================
+    E_CommStatus — Communication Channel Health
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Reports health of any communication link (OPC UA, Modbus, EtherCAT).
+     Used by all IPCs to detect inter-IPC or field device failures.
+   
+   RACE CONDITION NOTE:
+     Communication status is evaluated within the Communication_Task only.
+     Other tasks read a SNAPSHOT copy (ST_CommSnapshot) — never the live enum.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_CommStatus :
+(
+    OK          := 0,   (* Link healthy; data fresh *)
+    DEGRADED    := 1,   (* Intermittent timeouts; data may be stale *)
+    TIMEOUT     := 2,   (* No response within configured timeout *)
+    FAULT       := 3    (* Link failed; using last-known-good or fallback *)
+);
+END_TYPE

@@ -1,0 +1,83 @@
+(* =============================================================================
+    FB_DataCollector.M_RegisterPoint — Register a Data Point for Publishing
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   USAGE:
+     // Register a temperature point with on-change publishing, 0.5°C deadband:
+     nIdx := fbDataCollector.M_RegisterPoint(
+         sNodePath := 'Cooling/CDU_01/SupplyTemp',
+         sDescription := 'CDU 01 Supply Temperature',
+         sUnit := '°C',
+         eMode := E_PublishMode.ON_CHANGE,
+         fDeadband := 0.5,
+         nCyclicInterval_ms := 0,
+         nHeartbeatInterval_ms := 30000
+     );
+     
+     // Register a power point with cyclic 1-second publishing:
+     nIdx := fbDataCollector.M_RegisterPoint(
+         sNodePath := 'Power/TotalFacility_kW',
+         sDescription := 'Total Facility Power',
+         sUnit := 'kW',
+         eMode := E_PublishMode.CYCLIC,
+         fDeadband := 0.0,
+         nCyclicInterval_ms := 1000,
+         nHeartbeatInterval_ms := 0
+     );
+   
+   RETURNS:
+     Index of the registered point (1..500). Use this to update values.
+     Returns 0 if registration failed (array full).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_RegisterPoint : UINT
+VAR_INPUT
+    sNodePath            : STRING(128);
+    sDescription         : STRING(64);
+    sUnit                : STRING(16);
+    eMode                : E_PublishMode;
+    fDeadband            : REAL;
+    nCyclicInterval_ms   : UDINT;
+    nHeartbeatInterval_ms: UDINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Check capacity *)
+IF _nPointCount >= C_MAX_POINTS THEN
+    M_RegisterPoint := 0;   (* Failed — registry full *)
+    RETURN;
+END_IF
+
+(* Add new point *)
+_nPointCount := _nPointCount + 1;
+
+_astPoints[_nPointCount].sNodePath := sNodePath;
+_astPoints[_nPointCount].sDescription := sDescription;
+_astPoints[_nPointCount].sUnit := sUnit;
+_astPoints[_nPointCount].nIndex := _nPointCount;
+_astPoints[_nPointCount].ePublishMode := eMode;
+_astPoints[_nPointCount].fDeadband := fDeadband;
+_astPoints[_nPointCount].nCyclicInterval_ms := nCyclicInterval_ms;
+_astPoints[_nPointCount].nHeartbeatInterval_ms := nHeartbeatInterval_ms;
+_astPoints[_nPointCount].fCurrentValue := 0.0;
+_astPoints[_nPointCount].fLastPublished := 0.0;
+_astPoints[_nPointCount].nLastPublishTime_ms := 0;
+_astPoints[_nPointCount].bNeedsPublish := FALSE;
+_astPoints[_nPointCount].bEnabled := TRUE;
+_astPoints[_nPointCount].nQuality := C_QUALITY_GOOD;
+
+(* Update output *)
+nTotalPoints := _nPointCount;
+
+(* Return the index for value updates *)
+M_RegisterPoint := _nPointCount;

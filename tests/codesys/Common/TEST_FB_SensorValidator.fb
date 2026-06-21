@@ -1,0 +1,10 @@
+(* =============================================================================
+    TEST_FB_SensorValidator — Unit Tests for Sensor Validation
+    Test Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+FUNCTION_BLOCK TEST_FB_SensorValidator EXTENDS FB_TestSuite
+VAR
+    _fbSensor            : FB_SensorValidator;
+    _i                   : INT;
+END_VAR

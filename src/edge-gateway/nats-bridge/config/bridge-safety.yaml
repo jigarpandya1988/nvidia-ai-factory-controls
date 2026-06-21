@@ -1,0 +1,95 @@
+# =============================================================================
+# Bridge Configuration — IPC-04 Safety
+# Defines which OPC UA nodes to publish and which commands to accept
+# =============================================================================
+
+# OPC UA nodes to READ and publish to NATS as telemetry
+publish_nodes:
+  # Safety chain status
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Permit"
+    tag: "SafetyChain.Permit"
+    deadband: 0
+    max_interval_ms: 1000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_EPO_Status"
+    tag: "EPO.Status"
+    deadband: 0
+    max_interval_ms: 5000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_EPO_ZoneMask"
+    tag: "EPO.ZoneMask"
+    deadband: 0
+    max_interval_ms: 5000
+
+  # Fire detection
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Fire_Status"
+    tag: "Fire.Status"
+    deadband: 0
+    max_interval_ms: 5000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Fire_ZoneMask"
+    tag: "Fire.ZoneMask"
+    deadband: 0
+    max_interval_ms: 5000
+
+  # Leak detection
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Leak_Status"
+    tag: "Leak.Status"
+    deadband: 0
+    max_interval_ms: 5000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Leak_ZoneMask"
+    tag: "Leak.ZoneMask"
+    deadband: 0
+    max_interval_ms: 5000
+
+  # Seismic
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Seismic_Accel"
+    tag: "Seismic.Accel"
+    deadband: 0.01
+    max_interval_ms: 1000
+
+  # Response time
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_ResponseTime_ms"
+    tag: "ResponseTime_ms"
+    deadband: 5.0
+    max_interval_ms: 10000
+
+  # Alarms
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Alm_EPO_Tripped"
+    tag: "Alm_EPO_Tripped"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Alm_Fire"
+    tag: "Alm_Fire"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Safety_Alm_Leak"
+    tag: "Alm_Leak"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+# OPC UA nodes that can be WRITTEN from NATS commands
+command_nodes:
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Safety_Reset"
+    tag: "System.Reset"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Safety_EPO_Reset"
+    tag: "EPO.Reset"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Safety_FireSuppress_Arm"
+    tag: "FireSuppress.Arm"
+    type: bool
+
+# Subjects to subscribe for peer-to-peer data
+subscribe_subjects:
+  - "aifactory.us-west-01.power.peer"
+  - "aifactory.us-west-01.cooling.peer"
+  - "aifactory.us-west-01.environment.peer"

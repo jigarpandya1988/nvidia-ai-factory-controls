@@ -1,0 +1,104 @@
+(* =============================================================================
+    FB_LeakDetection.M_Execute — Cyclic Leak Detection Logic
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every scan when: bEnable=TRUE AND initialized AND no fault latched.
+   
+   LOGIC:
+     1. Debounce each zone input (500ms confirmation)
+     2. Classify leak severity (MINOR vs MAJOR)
+     3. Drive zone isolation and trip request outputs
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Reset scan-level accumulators ─────────────────────────────────────────── *)
+nActiveZoneCount := 0;
+bMinorLeak := FALSE;
+bMajorLeak := FALSE;
+bTripRequest := FALSE;
+bAlm_LeakMinor := FALSE;
+bAlm_LeakMajor := FALSE;
+_bHasActiveAlarm := FALSE;
+
+(* ─── Process each zone ─────────────────────────────────────────────────────── *)
+FOR _i := 1 TO C_MAX_ZONES DO
+    
+    (* Debounce: accumulate time while zone input is TRUE *)
+    IF abLeakZone[_i] THEN
+        _afDebounceAccum[_i] := _afDebounceAccum[_i] + fCycleTime_s;
+    ELSE
+        (* Zone cleared — reset debounce accumulator *)
+        _afDebounceAccum[_i] := 0.0;
+        _abConfirmed[_i] := FALSE;
+    END_IF
+    
+    (* Confirm leak after debounce period elapsed *)
+    IF _afDebounceAccum[_i] >= C_DEBOUNCE_TIME_S THEN
+        _abConfirmed[_i] := TRUE;
+    END_IF
+    
+    (* R_TRIG for event timestamping on confirmation *)
+    _artrigZone[_i](CLK := _abConfirmed[_i]);
+    
+    (* Update zone active output *)
+    abZoneActive[_i] := _abConfirmed[_i];
+    
+    (* Count active zones and drive isolation *)
+    IF _abConfirmed[_i] THEN
+        nActiveZoneCount := nActiveZoneCount + 1;
+        abIsolateZone[_i] := TRUE;
+    ELSE
+        abIsolateZone[_i] := FALSE;
+    END_IF
+    
+END_FOR
+
+(* ─── Classify Leak Severity ────────────────────────────────────────────────── *)
+IF nActiveZoneCount >= 1 THEN
+    bMinorLeak := TRUE;
+    bAlm_LeakMinor := TRUE;
+    _bHasActiveAlarm := TRUE;
+END_IF
+
+(* MAJOR: multiple zones OR any single critical zone *)
+IF nActiveZoneCount >= 2 THEN
+    bMajorLeak := TRUE;
+    bAlm_LeakMajor := TRUE;
+    bTripRequest := TRUE;
+ELSE
+    (* Check if the single active zone is a critical zone *)
+    FOR _i := 1 TO C_MAX_ZONES DO
+        IF _abConfirmed[_i] AND abCriticalZone[_i] THEN
+            bMajorLeak := TRUE;
+            bAlm_LeakMajor := TRUE;
+            bTripRequest := TRUE;
+        END_IF
+    END_FOR
+END_IF
+
+(* ─── Update Safety Interface State ────────────────────────────────────────── *)
+IF bMajorLeak THEN
+    _eSafetyState := E_SafetyState.TRIPPED;
+    _bSafetyPermit := FALSE;
+ELSIF bMinorLeak THEN
+    _eSafetyState := E_SafetyState.ALARM;
+    _bSafetyPermit := TRUE;  (* Minor leak does not revoke safety permit *)
+ELSE
+    _eSafetyState := E_SafetyState.SAFE;
+    _bSafetyPermit := TRUE;
+END_IF
+
+M_Execute := TRUE;

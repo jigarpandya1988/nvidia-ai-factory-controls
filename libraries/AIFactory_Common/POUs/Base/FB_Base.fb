@@ -1,0 +1,138 @@
+(* =============================================================================
+    FB_Base — Abstract Base Function Block
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Provides a consistent lifecycle pattern for ALL control function blocks.
+     Every FB in this project EXTENDS FB_Base to inherit:
+       • Deterministic initialization (single-shot, guarded)
+       • Enable/disable with MANDATORY safe-state enforcement
+       • Heartbeat counter for external watchdog integration
+       • Fault latching with manual-reset-only recovery
+       • Periodic self-diagnostics
+   
+   OOP DESIGN:
+     Derived FBs override virtual methods:
+       • M_Initialize()  — One-time setup on first enable or after reset
+       • M_Execute()     — Main cyclic logic (only when RUNNING)
+       • M_SafeState()   — Drive ALL outputs to fail-safe values
+       • M_Diagnose()    — Periodic self-test (sensor validation, etc.)
+   
+   SAFETY PRINCIPLES:
+     1. FAIL-SAFE DEFAULT: Any non-RUNNING state enforces safe outputs.
+     2. FAULT LATCHING: Faults persist until explicit operator reset.
+     3. NO HIDDEN TRANSITIONS: First scan is always DISABLED, never RUNNING.
+     4. WATCHDOG SUPPORT: Heartbeat proves code is executing.
+   
+   RACE CONDITION PREVENTION:
+     • This FB runs within ONE task only. Never instantiate across tasks.
+     • Cross-task data exchange: use ST_* snapshot structs with atomic copy.
+     • Heartbeat is the ONLY output safe to read from another task (UDINT
+       is atomically written on 32-bit ARM and x86 architectures).
+   
+   IMPLEMENTS: I_Controllable
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_Base IMPLEMENTS I_Controllable
+VAR_INPUT
+    bEnable              : BOOL;            (* Master enable. FALSE → safe-state. *)
+    bReset               : BOOL;            (* Rising edge clears fault, re-inits. *)
+END_VAR
+
+VAR_OUTPUT
+    bReady               : BOOL;            (* TRUE = initialized and executing *)
+    bHealthy             : BOOL;            (* TRUE = no faults latched *)
+    nHeartbeat           : UDINT;           (* Scan counter; watchdog monitors this *)
+    eLifecycle           : E_Lifecycle;     (* Current state for diagnostics *)
+    sFaultMessage        : STRING(128);     (* Empty when healthy *)
+END_VAR
+
+VAR
+    _bInitDone           : BOOL;            (* Guards one-shot initialization *)
+    _bFaultLatched       : BOOL;            (* Latched fault; only bReset clears *)
+    _rtrigReset          : R_TRIG;          (* Rising edge detector for bReset *)
+    _ftrigEnable         : F_TRIG;          (* Falling edge detector for bEnable *)
+    _nDiagCounter        : UDINT;           (* Counts scans between diagnostics *)
+    _nDiagInterval       : UDINT := 1000;  (* Scans between M_Diagnose calls *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── STEP 1: Heartbeat ──────────────────────────────────────────────────────
+   Unconditional increment. Proves this FB's task is alive.
+   External watchdog: if nHeartbeat stops changing → task stalled. *)
+nHeartbeat := nHeartbeat + 1;
+
+
+(* ─── STEP 2: Reset Edge Detection ──────────────────────────────────────────
+   R_TRIG on bReset: clear fault, force re-initialization.
+   Using standard R_TRIG FB ensures proper edge detection even if
+   bReset is held HIGH across multiple scans (only fires once). *)
+_rtrigReset(CLK := bReset);
+IF _rtrigReset.Q THEN
+    _bFaultLatched := FALSE;
+    _bInitDone := FALSE;
+    sFaultMessage := '';
+    eLifecycle := E_Lifecycle.INIT;
+END_IF
+
+
+(* ─── STEP 3: Enable Gate ────────────────────────────────────────────────────
+   SAFETY: Disabled FB ALWAYS drives safe-state. No exceptions.
+   F_TRIG detects the falling edge for one-shot disable logging. *)
+_ftrigEnable(CLK := bEnable);
+IF NOT bEnable THEN
+    eLifecycle := E_Lifecycle.DISABLED;
+    bReady := FALSE;
+    bHealthy := NOT _bFaultLatched;
+    THIS^.M_SafeState();
+    RETURN;
+END_IF
+
+
+(* ─── STEP 4: One-Shot Initialization ───────────────────────────────────────
+   Called once after enable or after reset. Derived FB sets up internals. *)
+IF NOT _bInitDone THEN
+    eLifecycle := E_Lifecycle.INIT;
+    bReady := FALSE;
+    THIS^.M_Initialize();
+    _bInitDone := TRUE;
+END_IF
+
+
+(* ─── STEP 5: Fault Gate ────────────────────────────────────────────────────
+   SAFETY: Faulted FB ALWAYS drives safe-state. Requires operator reset. *)
+IF _bFaultLatched THEN
+    eLifecycle := E_Lifecycle.FAULT;
+    bReady := FALSE;
+    bHealthy := FALSE;
+    THIS^.M_SafeState();
+    RETURN;
+END_IF
+
+
+(* ─── STEP 6: Normal Execution ──────────────────────────────────────────────
+   Only reached when: enabled AND initialized AND not faulted. *)
+eLifecycle := E_Lifecycle.RUNNING;
+bReady := TRUE;
+bHealthy := TRUE;
+THIS^.M_Execute();
+
+
+(* ─── STEP 7: Periodic Diagnostics ──────────────────────────────────────────
+   Self-test at configurable interval. Detects slow-developing faults. *)
+_nDiagCounter := _nDiagCounter + 1;
+IF _nDiagCounter >= _nDiagInterval THEN
+    _nDiagCounter := 0;
+    THIS^.M_Diagnose();
+END_IF

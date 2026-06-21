@@ -1,0 +1,50 @@
+(* =============================================================================
+    FB_AlarmManager.M_Acknowledge — Mark Alarm Acknowledged by Operator
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Marks an alarm record as acknowledged by the operator. The alarm
+     remains in the buffer with its current active/inactive state.
+     Acknowledgment only affects the unacknowledged counter and
+     annunciation behavior.
+   
+   PARAMETERS:
+     nID — Unique alarm identifier to acknowledge.
+   
+   RETURNS:
+     TRUE if alarm was found and acknowledged.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Acknowledge : BOOL
+VAR_INPUT
+    nID              : UDINT;
+END_VAR
+VAR
+    _idx             : UDINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+M_Acknowledge := FALSE;
+
+(* ─── Search for alarm with matching ID ─────────────────────────────────────── *)
+FOR _idx := 1 TO C_BUFFER_SIZE DO
+    IF _idx <= _nBufferCount THEN
+        IF _astBuffer[_idx].nID = nID AND NOT _astBuffer[_idx].bAcknowledged THEN
+            _astBuffer[_idx].bAcknowledged := TRUE;
+            _astBuffer[_idx].dtAcknowledged := DT#1970-01-01-00:00:00;  (* Placeholder — set by RTC *)
+            
+            M_Acknowledge := TRUE;
+            EXIT;
+        END_IF
+    END_IF
+END_FOR

@@ -1,0 +1,72 @@
+(* =============================================================================
+    PRG_Safety_Main — IPC-04 Safety Task Main Program
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   TASK: Safety_Task — Priority 0 (HIGHEST), Cycle 2ms
+   
+   PURPOSE:
+     Executes ALL safety functions: EPO, fire, leak detection.
+     Publishes safety permit to GVL_CrossTask for all other IPCs/tasks.
+   
+   SAFETY CRITICAL:
+     This program has the HIGHEST priority. It pre-empts all other tasks.
+     If this program faults, ALL outputs go to safe-state (hardware watchdog).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_Safety_Main
+VAR
+    fbEPO                : FB_EPO_Controller;
+    fbFire               : FB_FireSuppression;
+    fbLeak               : FB_LeakDetection;
+    
+    _bGlobalPermit       : BOOL;
+    _bGlobalEStop        : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Execute Safety Controllers ─────────────────────────────────────────── *)
+fbEPO(
+    (* EPO buttons — mapped to safe I/O terminals *)
+    bEPO_Ch1 := [FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE],
+    bEPO_Ch2 := [FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE],
+    
+    (* Automatic trip sources from other safety FBs *)
+    bTrip_Fire := fbFire.bTripRequest,
+    bTrip_LeakMajor := fbLeak.bTripRequest,
+    bTrip_Seismic := FALSE,         (* TODO: Map seismic sensor *)
+    bTrip_ThermalRunaway := FALSE,  (* TODO: Map thermal detection *)
+    
+    (* Reset inputs *)
+    bResetKey := FALSE,             (* TODO: Map key switch *)
+    bResetButton := FALSE,          (* TODO: Map reset button *)
+    bResetAuthorized := FALSE,      (* TODO: Map access control *)
+    
+    bEnable := TRUE,
+    bTestMode := FALSE,
+    fCycleTime_s := 0.002
+);
+
+fbFire(bEnable := TRUE, fCycleTime_s := 0.002);
+fbLeak(bEnable := TRUE, fCycleTime_s := 0.002);
+
+(* ─── Compute Global Safety Permit ──────────────────────────────────────── *)
+(* PESSIMISTIC: ALL subsystems must be OK for permit to be TRUE *)
+_bGlobalPermit := fbEPO.bSafetyPermit
+              AND NOT fbFire.bTripRequest
+              AND NOT fbLeak.bTripRequest;
+
+_bGlobalEStop := fbEPO.bAnyZoneTripped;
+
+(* ─── Publish to GVL (atomic BOOL write — safe from any task) ────────────── *)
+GVL_CrossTask.bSafetyPermit_Global := _bGlobalPermit;
+GVL_CrossTask.bEmergencyStop_Global := _bGlobalEStop;

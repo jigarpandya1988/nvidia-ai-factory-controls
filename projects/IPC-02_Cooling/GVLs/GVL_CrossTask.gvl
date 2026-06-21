@@ -1,0 +1,79 @@
+(* =============================================================================
+    GVL_CrossTask — Cross-Task Data Exchange Buffer
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Provides the ONLY mechanism for data exchange between tasks.
+     Prevents race conditions by enforcing atomic struct copy pattern.
+   
+   ARCHITECTURE:
+     ┌─────────────────┐         ┌──────────────────────┐
+     │  Control_Task   │         │  Communication_Task  │
+     │  (5ms cycle)    │         │  (100ms cycle)       │
+     │                 │         │                      │
+     │  FB_CDU writes  │──copy──→│  Reads stCDU_Status  │──→ OPC UA
+     │  stCDU_Status   │         │  at start of cycle   │
+     │  at end of scan │         │                      │
+     │                 │         │  Writes stCDU_Config  │
+     │  Reads config   │←─copy──│  (from OPC UA params) │
+     │  at start of    │         │  at end of cycle     │
+     │  scan           │         │                      │
+     └─────────────────┘         └──────────────────────┘
+   
+   RULES:
+     1. Control_Task WRITES status structs, READS config structs.
+     2. Communication_Task READS status structs, WRITES config structs.
+     3. Each task copies the ENTIRE struct at its cycle boundary.
+     4. No field-by-field access across tasks — always full struct copy.
+     5. CODESYS guarantees non-preemption within a task cycle, so
+        a struct copy within one scan is atomic from other tasks' view.
+   
+   RACE CONDITION ANALYSIS:
+     Q: Can Communication_Task read a half-written status struct?
+     A: No. Control_Task writes the struct in one scan (5ms). The
+        Communication_Task reads at its own cycle start (100ms).
+        CODESYS task scheduling ensures tasks don't interrupt each other
+        mid-cycle on single-core. On multi-core, use {attribute 'atomic'}
+        or explicit semaphores (not needed here — single-core IPC).
+   
+   MULTI-CORE NOTE:
+     If deploying on multi-core IPC (e.g., CX5240 with core isolation),
+     add {attribute 'atomic'} to each variable, or use CODESYS
+     SysSem library for explicit locking. Current design assumes
+     single-core execution with cooperative task scheduling.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* ─── Control → Communication (status snapshots) ─── *)
+    
+    (* CDU status: written by Control_Task, read by Communication_Task *)
+    stCDU_01_Status      : ST_CDU_Status;
+    stCDU_02_Status      : ST_CDU_Status;
+    stCDU_03_Status      : ST_CDU_Status;
+    stCDU_04_Status      : ST_CDU_Status;
+    
+    (* ─── Communication → Control (configuration/commands) ─── *)
+    
+    (* CDU config: written by Communication_Task (OPC UA), read by Control_Task *)
+    stCDU_01_Config      : ST_CDU_Config;
+    stCDU_02_Config      : ST_CDU_Config;
+    stCDU_03_Config      : ST_CDU_Config;
+    stCDU_04_Config      : ST_CDU_Config;
+    
+    (* GPU telemetry: written by Communication_Task, read by Control_Task *)
+    fGPU_Row1_TotalPower : REAL;    (* Total GPU power Row 1 [kW] *)
+    fGPU_Row1_MaxTemp    : REAL;    (* Max GPU temp Row 1 [°C] *)
+    fGPU_Row2_TotalPower : REAL;    (* Total GPU power Row 2 [kW] *)
+    fGPU_Row2_MaxTemp    : REAL;    (* Max GPU temp Row 2 [°C] *)
+    bGPU_DataFresh       : BOOL;    (* TRUE = GPU data updated within last 5s *)
+    nGPU_UpdateCounter   : UDINT;   (* Increments on each GPU data update *)
+    
+    (* ─── Safety → All Tasks (safety permit) ─── *)
+    
+    (* Written by Safety_Task, read by all other tasks.
+       Single BOOL — atomically readable on all architectures. *)
+    bSafetyPermit_Global : BOOL := TRUE;
+    bEmergencyStop_Global: BOOL := FALSE;
+END_VAR

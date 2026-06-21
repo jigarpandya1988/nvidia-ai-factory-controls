@@ -1,0 +1,94 @@
+(* =============================================================================
+    I_DataPublisher — Interface for Data Publishing Backends
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Abstraction layer for data publishing. Allows swapping between
+     different transport protocols without changing the control logic.
+   
+   SUPPORTED BACKENDS (via implementing FBs):
+     • FB_Publisher_OPCUA   — Built-in CODESYS OPC UA symbol server
+     • FB_Publisher_MQTT    — Direct MQTT publish (CODESYS IoT library)
+     • FB_Publisher_Modbus  — Modbus TCP slave holding registers
+     • FB_Publisher_Memory  — Shared memory (local historian/HMI)
+   
+   DESIGN:
+     The data collection layer (FB_DataCollector) holds an array of
+     I_DataPublisher references. On each publish cycle, it calls
+     M_PublishFloat/M_PublishBool/M_PublishStruct on ALL registered
+     publishers. Each publisher formats and sends per its protocol.
+   
+   STRATEGY PATTERN:
+     Control logic → FB_DataCollector → I_DataPublisher[]
+                                           ├── FB_Publisher_OPCUA
+                                           ├── FB_Publisher_MQTT
+                                           ├── FB_Publisher_Modbus
+                                           └── FB_Publisher_Memory
+   ============================================================================= *)
+
+INTERFACE I_DataPublisher
+
+(* --- Lifecycle --- *)
+
+METHOD M_Connect : BOOL
+(* Initialize the publishing backend. Returns TRUE on success. *)
+END_METHOD
+
+METHOD M_Disconnect : BOOL
+(* Gracefully close the publishing connection. *)
+END_METHOD
+
+PROPERTY bIsConnected : BOOL
+(* TRUE when backend is ready to accept publish calls. *)
+GET;
+END_PROPERTY
+
+(* --- Publishing Methods --- *)
+
+METHOD M_PublishFloat : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Hierarchical path: 'Cooling/CDU_01/SupplyTemp' *)
+    fValue       : REAL;            (* Value to publish *)
+    sUnit        : STRING(16);      (* Engineering unit: '°C', 'kW', '%' *)
+    nQuality     : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+END_VAR
+END_METHOD
+
+METHOD M_PublishBool : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Hierarchical path *)
+    bValue       : BOOL;            (* Value to publish *)
+    nQuality     : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+END_VAR
+END_METHOD
+
+METHOD M_PublishInt : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Hierarchical path *)
+    nValue       : DINT;            (* Value to publish *)
+    sUnit        : STRING(16);      (* Engineering unit *)
+    nQuality     : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+END_VAR
+END_METHOD
+
+METHOD M_PublishString : BOOL
+VAR_INPUT
+    sNodePath    : STRING(128);     (* Hierarchical path *)
+    sValue       : STRING(255);     (* String value to publish *)
+    nQuality     : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+END_VAR
+END_METHOD
+
+(* --- Bulk Operations --- *)
+
+METHOD M_BeginBatch : BOOL
+(* Start a batch publish (for protocols that benefit from batching like MQTT).
+   Individual publishes between Begin/End are buffered and sent as one message. *)
+END_METHOD
+
+METHOD M_EndBatch : BOOL
+(* Flush the batch. All buffered values sent in one network operation. *)
+END_METHOD
+
+END_INTERFACE

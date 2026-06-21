@@ -1,0 +1,33 @@
+# =============================================================================
+# AIFactory_Cooling — Library Manifest
+# =============================================================================
+
+name: AIFactory_Cooling
+title: "AI Factory Cooling Control Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Cooling"
+description: |
+  CDU control, chiller plant management, cooling tower control,
+  and N+1 redundancy supervision for liquid-cooled AI factories.
+
+dependencies:
+  - name: AIFactory_Common
+    version: ">=1.0.0.0"
+
+exports:
+  function_blocks:
+    - FB_CDU_Controller      # Single CDU unit (PID + feedforward + state machine)
+    - FB_CDU_Supervisor      # N+1 CDU redundancy management
+    - FB_ChillerPlant        # Chiller staging and control
+    - FB_CoolingTower        # Cooling tower / dry cooler fan control
+  
+  enumerations:
+    - E_CDU_State            # CDU state machine states
+    - E_CDU_Mode             # Normal / Economizer / MaxCool / Standby
+    - E_Chiller_State        # Chiller unit states
+    - E_PlantMode            # Plant-level operating modes
+  
+  structures:
+    - ST_CDU_Config          # CDU tunable parameters
+    - ST_CDU_Status          # CDU runtime status snapshot

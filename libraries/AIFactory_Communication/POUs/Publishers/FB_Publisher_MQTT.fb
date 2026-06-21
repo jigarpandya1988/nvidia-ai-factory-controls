@@ -1,0 +1,96 @@
+(* =============================================================================
+    FB_Publisher_MQTT — MQTT Direct Publisher (Sparkplug B or Plain)
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataPublisher using CODESYS MQTT client library.
+     Publishes data directly from the PLC to an MQTT broker without
+     needing the edge gateway Python bridge.
+   
+   USE CASE:
+     • Small deployments without edge server
+     • Direct-to-cloud publishing (Azure IoT Hub, AWS IoT Core)
+     • Redundant path alongside OPC UA
+     • Low-latency alarm notification
+   
+   PROTOCOLS SUPPORTED:
+     • Plain MQTT 3.1.1 / 5.0 (JSON payload)
+     • MQTT with Sparkplug B encoding (if library available)
+   
+   REQUIRES:
+     CODESYS library: IoT_MQTT (CODESYS IoT Libraries Toolkit)
+     OR: IoDrvMQTTClient (built-in since CODESYS 3.5 SP17)
+   
+   TOPIC STRUCTURE:
+     Plain:     {prefix}/{nodePath}    → payload: {"v": 35.2, "q": 0, "t": 1234}
+     Sparkplug: spBv1.0/{group}/DDATA/{edge}/{device}
+   
+   THREAD SAFETY:
+     MQTT client runs in this FB's task context (Communication_Task).
+     Publish calls are synchronous (buffered internally by MQTT lib).
+     Batch mode collects metrics into one MQTT message for efficiency.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Publisher_MQTT IMPLEMENTS I_DataPublisher
+VAR_INPUT
+    (* --- Broker Configuration --- *)
+    sBrokerURL           : STRING(128) := 'tcp://192.168.200.10:1883';
+    sClientID            : STRING(64) := 'IPC-02-MQTT';
+    sUsername            : STRING(64) := '';
+    sPassword            : STRING(64) := '';
+    bUseTLS              : BOOL := FALSE;
+    
+    (* --- Topic Configuration --- *)
+    sTopicPrefix         : STRING(64) := 'aifactory/cooling';
+    bUseSparkplug        : BOOL := FALSE;
+    sSparkplugGroup      : STRING(32) := 'AIFactory';
+    sSparkplugEdgeNode   : STRING(32) := 'IPC_Cooling';
+    
+    (* --- QoS --- *)
+    nQoS                 : USINT := 0;      (* 0=at-most-once, 1=at-least-once *)
+    bRetain              : BOOL := FALSE;
+END_VAR
+
+VAR
+    _bConnected          : BOOL;
+    _nPublishCount       : UDINT;
+    _nErrorCount         : UDINT;
+    _bBatchMode          : BOOL;
+    
+    (* Batch buffer: accumulate metrics then send as one message *)
+    _sBatchPayload       : STRING(4096);
+    _nBatchItemCount     : UINT;
+    
+    (* Connection management *)
+    _bConnectRequested   : BOOL;
+    _tonReconnect        : TON;
+    _tReconnectInterval  : TIME := T#5S;
+    
+    (* MQTT client instance (from CODESYS IoT library) *)
+    (* _fbMqttClient     : MQTT.MQTTClient;  -- uncomment when library added *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Connection state machine would run here.
+   For now, this is the structural placeholder.
+   Actual MQTT library calls added when IoT_MQTT library is imported. *)
+
+(* Auto-reconnect logic *)
+IF _bConnectRequested AND NOT _bConnected THEN
+    _tonReconnect(IN := TRUE, PT := _tReconnectInterval);
+    IF _tonReconnect.Q THEN
+        _tonReconnect(IN := FALSE);
+        (* Attempt reconnect *)
+        (* _fbMqttClient.Connect(...); *)
+    END_IF
+END_IF

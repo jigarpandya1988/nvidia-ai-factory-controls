@@ -1,0 +1,41 @@
+(* =============================================================================
+    FB_DataCollector.M_SafeState — Stop All Publishing
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   When disabled/faulted: disconnect all publishers and subscribers.
+   No data leaves the system in safe-state.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Disconnect all publishers *)
+FOR _j := 1 TO _nPublisherCount DO
+    IF _arefPublishers[_j] <> 0 THEN
+        _arefPublishers[_j].M_Disconnect();
+    END_IF
+END_FOR
+
+(* Disconnect all subscribers *)
+FOR _j := 1 TO _nSubscriberCount DO
+    IF _arefSubscribers[_j] <> 0 THEN
+        _arefSubscribers[_j].M_Disconnect();
+    END_IF
+END_FOR
+
+(* Clear statistics *)
+nPublishedThisCycle := 0;
+nActivePublishers := 0;
+nActiveSubscribers := 0;
+
+M_SafeState := TRUE;

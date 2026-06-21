@@ -1,0 +1,43 @@
+(* =============================================================================
+    ST_ModbusPollRequest — Modbus Polling Configuration
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Defines one Modbus read operation in the polling table.
+     FB_Subscriber_Modbus maintains an array of these and cycles through them.
+   ============================================================================= *)
+
+TYPE ST_ModbusPollRequest :
+STRUCT
+    (* --- Target Device --- *)
+    nDeviceID            : USINT;           (* Device index (1..8) for tracking *)
+    sDeviceIP            : STRING(16);      (* IP address: '192.168.100.50' *)
+    nPort                : UINT := 502;     (* Modbus TCP port *)
+    nUnitID              : USINT := 1;      (* Modbus unit/slave ID *)
+    
+    (* --- Register Specification --- *)
+    nFunctionCode        : USINT := 3;      (* 3=HoldingReg, 4=InputReg, 1=Coil *)
+    nStartRegister       : UINT;            (* Starting register address *)
+    nRegisterCount       : UINT := 1;       (* Number of registers to read *)
+    
+    (* --- Data Interpretation --- *)
+    bIsFloat             : BOOL;            (* TRUE = 2 regs as IEEE 754 float *)
+    bIsBigEndian         : BOOL := TRUE;    (* Byte order for float decode *)
+    fScaleFactor         : REAL := 1.0;     (* Multiply raw value by this *)
+    fOffset              : REAL := 0.0;     (* Add this after scaling *)
+    
+    (* --- Mapping --- *)
+    sNodePath            : STRING(128);     (* Maps to ST_Subscription.sNodePath *)
+    nSubscriptionIndex   : UINT;            (* Index into received data array *)
+    
+    (* --- Timing --- *)
+    nPollInterval_ms     : UDINT := 1000;   (* How often to poll this register *)
+    nLastPollTime_ms     : UDINT;           (* When last polled *)
+    nTimeout_ms          : UDINT := 1000;   (* Response timeout *)
+    
+    (* --- Status --- *)
+    bEnabled             : BOOL := TRUE;    (* Skip if disabled *)
+    bLastPollOK          : BOOL;            (* Last poll succeeded *)
+END_STRUCT
+END_TYPE

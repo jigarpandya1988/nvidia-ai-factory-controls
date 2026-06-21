@@ -1,0 +1,163 @@
+(* =============================================================================
+    FB_TestSuite — Assertion Methods
+    Test Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   All assertion methods follow the same pattern:
+     1. Increment nTestsRun
+     2. Evaluate condition
+     3. If PASS: increment nTestsPassed
+     4. If FAIL: increment nTestsFailed, store message
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* NOTE: In CODESYS, each assertion is a separate METHOD. 
+   This file documents them all together for reference.
+   In the actual project, each would be its own .method file.
+   For brevity, they're combined here. *)
+
+
+(* ─── AssertTrue ─────────────────────────────────────────────────────────── *)
+METHOD AssertTrue
+VAR_INPUT
+    bCondition   : BOOL;
+    sMessage     : STRING(128);
+END_VAR
+
+nTestsRun := nTestsRun + 1;
+IF bCondition THEN
+    nTestsPassed := nTestsPassed + 1;
+ELSE
+    nTestsFailed := nTestsFailed + 1;
+    sLastFailure := CONCAT(CONCAT(_sCurrentTest, ': '), sMessage);
+    _bCurrentTestFailed := TRUE;
+END_IF
+END_METHOD
+
+
+(* ─── AssertFalse ────────────────────────────────────────────────────────── *)
+METHOD AssertFalse
+VAR_INPUT
+    bCondition   : BOOL;
+    sMessage     : STRING(128);
+END_VAR
+
+THIS^.AssertTrue(NOT bCondition, sMessage);
+END_METHOD
+
+
+(* ─── AssertEquals_REAL (with tolerance) ─────────────────────────────────── *)
+METHOD AssertEquals_REAL
+VAR_INPUT
+    fExpected    : REAL;
+    fActual      : REAL;
+    fTolerance   : REAL;
+    sMessage     : STRING(128);
+END_VAR
+
+nTestsRun := nTestsRun + 1;
+IF ABS(fExpected - fActual) <= fTolerance THEN
+    nTestsPassed := nTestsPassed + 1;
+ELSE
+    nTestsFailed := nTestsFailed + 1;
+    sLastFailure := CONCAT(CONCAT(_sCurrentTest, ': '), sMessage);
+    _bCurrentTestFailed := TRUE;
+END_IF
+END_METHOD
+
+
+(* ─── AssertEquals_INT ───────────────────────────────────────────────────── *)
+METHOD AssertEquals_INT
+VAR_INPUT
+    nExpected    : DINT;
+    nActual      : DINT;
+    sMessage     : STRING(128);
+END_VAR
+
+nTestsRun := nTestsRun + 1;
+IF nExpected = nActual THEN
+    nTestsPassed := nTestsPassed + 1;
+ELSE
+    nTestsFailed := nTestsFailed + 1;
+    sLastFailure := CONCAT(CONCAT(_sCurrentTest, ': '), sMessage);
+    _bCurrentTestFailed := TRUE;
+END_IF
+END_METHOD
+
+
+(* ─── AssertEquals_BOOL ──────────────────────────────────────────────────── *)
+METHOD AssertEquals_BOOL
+VAR_INPUT
+    bExpected    : BOOL;
+    bActual      : BOOL;
+    sMessage     : STRING(128);
+END_VAR
+
+nTestsRun := nTestsRun + 1;
+IF bExpected = bActual THEN
+    nTestsPassed := nTestsPassed + 1;
+ELSE
+    nTestsFailed := nTestsFailed + 1;
+    sLastFailure := CONCAT(CONCAT(_sCurrentTest, ': '), sMessage);
+    _bCurrentTestFailed := TRUE;
+END_IF
+END_METHOD
+
+
+(* ─── AssertInRange ──────────────────────────────────────────────────────── *)
+METHOD AssertInRange
+VAR_INPUT
+    fValue       : REAL;
+    fMin         : REAL;
+    fMax         : REAL;
+    sMessage     : STRING(128);
+END_VAR
+
+nTestsRun := nTestsRun + 1;
+IF (fValue >= fMin) AND (fValue <= fMax) THEN
+    nTestsPassed := nTestsPassed + 1;
+ELSE
+    nTestsFailed := nTestsFailed + 1;
+    sLastFailure := CONCAT(CONCAT(_sCurrentTest, ': '), sMessage);
+    _bCurrentTestFailed := TRUE;
+END_IF
+END_METHOD
+
+
+(* ─── AssertGreater ──────────────────────────────────────────────────────── *)
+METHOD AssertGreater
+VAR_INPUT
+    fValue       : REAL;
+    fThreshold   : REAL;
+    sMessage     : STRING(128);
+END_VAR
+
+THIS^.AssertTrue(fValue > fThreshold, sMessage);
+END_METHOD
+
+
+(* ─── AssertLess ─────────────────────────────────────────────────────────── *)
+METHOD AssertLess
+VAR_INPUT
+    fValue       : REAL;
+    fThreshold   : REAL;
+    sMessage     : STRING(128);
+END_VAR
+
+THIS^.AssertTrue(fValue < fThreshold, sMessage);
+END_METHOD
+
+
+(* ─── TEST (marks the start of a named test case) ────────────────────────── *)
+METHOD TEST
+VAR_INPUT
+    sTestName    : STRING(64);
+END_VAR
+
+_sCurrentTest := sTestName;
+_bCurrentTestFailed := FALSE;
+END_METHOD

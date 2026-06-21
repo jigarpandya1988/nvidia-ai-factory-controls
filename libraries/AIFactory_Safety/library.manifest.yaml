@@ -1,0 +1,37 @@
+# =============================================================================
+# AIFactory_Safety — Library Manifest
+# =============================================================================
+
+name: AIFactory_Safety
+title: "AI Factory Safety Systems Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Safety"
+description: |
+  SIL 2 safety functions: Emergency Power Off, fire detection/suppression,
+  leak detection, and seismic protection for AI factories.
+
+  WARNING: This library contains safety-critical code.
+  Changes require safety review per IEC 61508.
+
+safety_relevant: true
+sil_level: "SIL 2"
+safety_standard: "IEC 61508"
+
+dependencies:
+  - name: AIFactory_Common
+    version: ">=1.0.0.0"
+
+exports:
+  function_blocks:
+    - FB_EPO_Controller      # Emergency Power Off (SIL 2)
+    - FB_FireSuppression     # VESDA + suppression sequence
+    - FB_LeakDetection       # Zone-based leak sensing
+  
+  enumerations:
+    - E_EPO_Zone             # EPO zone identifiers
+    - E_FireState            # Fire detection states
+    - E_FireSuppressionState # Suppression state machine
+  
+  structures:
+    - ST_EPO_ZoneStatus      # Per-zone EPO status

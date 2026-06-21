@@ -1,0 +1,28 @@
+(* =============================================================================
+    E_FireSuppressionState — Fire Suppression State Machine States
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     State machine for FB_FireSuppression VESDA + clean agent sequence.
+   
+   SEQUENCE:
+     NORMAL → ALERT → PRE_ALARM → ALARM → DISCHARGE_COUNTDOWN → DISCHARGED
+   
+   ABORT:
+     During DISCHARGE_COUNTDOWN: operator abort returns to ALARM state
+     (held for investigation, countdown does not resume automatically).
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_FireSuppressionState :
+(
+    NORMAL              := 0,   (* No detection, system monitoring *)
+    ALERT               := 1,   (* VESDA Level 1 — early warning *)
+    PRE_ALARM           := 2,   (* VESDA Level 2 — action required *)
+    ALARM               := 3,   (* Confirmed fire — VESDA L3 or 2+ spot *)
+    DISCHARGE_COUNTDOWN := 4,   (* 30s countdown to agent release *)
+    DISCHARGED          := 5    (* Agent released, awaiting reset *)
+);
+END_TYPE

@@ -1,0 +1,33 @@
+(* =============================================================================
+    ST_BACnetPollRequest — BACnet ReadProperty Configuration
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+TYPE ST_BACnetPollRequest :
+STRUCT
+    (* --- Target Object --- *)
+    nDeviceInstance       : UDINT;           (* BACnet device instance *)
+    sDeviceIP            : STRING(16);       (* IP address for BACnet/IP *)
+    nObjectType          : UINT;            (* 0=AI, 1=AO, 2=AV, 3=BI, 4=BO, 5=BV *)
+    nObjectInstance      : UDINT;           (* Object instance number *)
+    nPropertyID          : UINT := 85;      (* 85 = Present_Value *)
+    
+    (* --- Data Interpretation --- *)
+    bIsFloat             : BOOL := TRUE;    (* Present value is REAL *)
+    fScaleFactor         : REAL := 1.0;
+    fOffset              : REAL := 0.0;
+    
+    (* --- Mapping --- *)
+    sNodePath            : STRING(128);     (* Maps to subscription path *)
+    nSubscriptionIndex   : UINT;
+    
+    (* --- Timing --- *)
+    nPollInterval_ms     : UDINT := 5000;   (* BACnet is slower — 5s default *)
+    nLastPollTime_ms     : UDINT;
+    
+    (* --- Status --- *)
+    bEnabled             : BOOL := TRUE;
+    bLastReadOK          : BOOL;
+    nBACnetError         : UINT;            (* Last BACnet error/reject code *)
+END_STRUCT
+END_TYPE

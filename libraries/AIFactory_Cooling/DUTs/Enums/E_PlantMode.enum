@@ -1,0 +1,30 @@
+(* =============================================================================
+    E_PlantMode — Chiller Plant Operating Mode
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   MODES:
+     Based on research: modern AI factories use 45°C warm-water cooling
+     which can eliminate chillers in many climates. The plant must support:
+     - Full mechanical cooling (chillers running)
+     - Partial free cooling (economizer + reduced chiller)
+     - Full free cooling (chillers off, cooling towers only)
+     - Emergency bypass (direct facility water, no treatment)
+   
+   REFERENCE:
+     DCX FDU V2AT2: 8MW CDU at 45°C supply eliminates chillers in
+     many deployments. Approach temperature (AT2) design minimizes
+     thermal loss between facility water and IT coolant.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PlantMode :
+(
+    MECHANICAL      := 0,   (* Full chiller operation *)
+    PARTIAL_FREE    := 1,   (* Economizer + reduced chiller capacity *)
+    FREE_COOLING    := 2,   (* Cooling towers only, chillers off *)
+    EMERGENCY       := 3,   (* Maximum rejection, efficiency ignored *)
+    STANDBY         := 4    (* Plant idle, ready to start *)
+);
+END_TYPE

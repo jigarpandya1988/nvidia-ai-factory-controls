@@ -1,0 +1,31 @@
+(* =============================================================================
+    E_PublishMode — Data Publishing Trigger Mode
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Determines WHEN a data point gets published. Reduces network traffic
+     and storage by only sending data when it matters.
+   
+   MODES:
+     CYCLIC      — Publish at fixed interval regardless of value change
+     ON_CHANGE   — Publish only when value changes beyond deadband
+     ON_DEMAND   — Publish only when explicitly requested (manual/event)
+     HYBRID      — On-change with maximum interval (heartbeat guarantee)
+   
+   BANDWIDTH IMPACT (1000 data points, 1Hz cyclic):
+     CYCLIC:    ~500 KB/s (all points every second)
+     ON_CHANGE: ~50 KB/s  (typical 10% change rate)
+     HYBRID:    ~80 KB/s  (on-change + 30s heartbeat)
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PublishMode :
+(
+    CYCLIC      := 0,   (* Fixed-interval publishing *)
+    ON_CHANGE   := 1,   (* Publish when value changes > deadband *)
+    ON_DEMAND   := 2,   (* Publish only on explicit trigger *)
+    HYBRID      := 3    (* On-change with periodic heartbeat *)
+);
+END_TYPE

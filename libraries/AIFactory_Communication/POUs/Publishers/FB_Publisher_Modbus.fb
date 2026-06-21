@@ -1,0 +1,77 @@
+(* =============================================================================
+    FB_Publisher_Modbus — Modbus TCP Slave (Server) Publisher
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataPublisher by mapping data points to Modbus holding
+     registers. External SCADA/HMI systems can read values via standard
+     Modbus TCP polling.
+   
+   USE CASE:
+     • Legacy SCADA integration (Wonderware, iFIX, Ignition)
+     • BMS (Building Management System) integration
+     • Third-party monitoring tools
+     • Simple HMI panels with Modbus-only capability
+   
+   REGISTER MAPPING:
+     Each data point is assigned a Modbus register address.
+     REAL values occupy 2 registers (32-bit float, IEEE 754).
+     BOOL values occupy 1 coil or discrete input.
+   
+     Default mapping (configurable):
+       Registers 0-99:    System status (power, PUE, etc.)
+       Registers 100-299: Cooling data (temps, flows, pressures)
+       Registers 300-399: Environment data (temp, humidity)
+       Registers 400-499: Safety status
+       Registers 500-999: Reserved
+   
+   REQUIRES:
+     CODESYS Modbus TCP Slave device in the project.
+     Register mapping configured in device settings.
+   
+   THREAD SAFETY:
+     CODESYS Modbus slave reads from a memory-mapped register array.
+     This FB writes to that array in Communication_Task.
+     The Modbus slave reads asynchronously (driven by external polling).
+     REAL values (2 registers) must be written atomically — this FB
+     writes both registers in sequence within one scan, and CODESYS
+     Modbus driver handles the consistency.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Publisher_Modbus IMPLEMENTS I_DataPublisher
+VAR_INPUT
+    (* --- Configuration --- *)
+    nBaseRegister        : UINT := 0;       (* Starting register address *)
+    nMaxRegisters        : UINT := 1000;    (* Total register space available *)
+    nSlaveID             : USINT := 1;      (* Modbus slave/unit ID *)
+END_VAR
+
+VAR
+    _bConnected          : BOOL := TRUE;    (* Always "connected" — passive slave *)
+    _nPublishCount       : UDINT;
+    _nNextRegister       : UINT;            (* Next available register for mapping *)
+    
+    (* Register-to-NodePath mapping table *)
+    _asRegisterMap       : ARRAY[0..499] OF STRING(128);  (* Register → node path *)
+    _nMappedCount        : UINT;
+    
+    (* Holding register array (exposed to Modbus slave device) *)
+    (* In real project: this would be the Modbus slave's register array *)
+    _anHoldingRegisters  : ARRAY[0..999] OF WORD;
+    
+    _bBatchMode          : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Modbus slave is passive — no cyclic processing needed.
+   Register array is updated by M_PublishFloat and read by Modbus driver. *)

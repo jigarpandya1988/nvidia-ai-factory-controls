@@ -1,0 +1,13 @@
+(* =============================================================================
+    ST_TestResult — Individual Test Case Result
+    Test Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+TYPE ST_TestResult :
+STRUCT
+    sTestName            : STRING(64);
+    bPassed              : BOOL;
+    sMessage             : STRING(255);     (* Failure message if failed *)
+    fDuration_ms         : REAL;            (* Execution time *)
+END_STRUCT
+END_TYPE

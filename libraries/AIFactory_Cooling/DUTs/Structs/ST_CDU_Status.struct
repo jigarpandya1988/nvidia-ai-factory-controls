@@ -1,0 +1,69 @@
+(* =============================================================================
+    ST_CDU_Status — CDU Runtime Status Snapshot
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Read-only snapshot of CDU state for cross-task consumption.
+     The Control_Task writes this struct atomically at END of each cycle.
+     The Communication_Task reads it atomically at START of its cycle.
+   
+   RACE CONDITION PREVENTION:
+     This struct is the ONLY mechanism for cross-task CDU data access.
+     Rules:
+       1. Control_Task: writes entire struct in one assignment (atomic copy)
+       2. Communication_Task: reads entire struct in one assignment
+       3. No field-by-field access across task boundaries
+       4. nUpdateCounter increments on each write — reader can detect staleness
+   
+   OPC UA PUBLISHING:
+     All fields in this struct are mapped to OPC UA nodes by the
+     Communication_Task. Field names match OPC UA browse names.
+   ============================================================================= *)
+
+TYPE ST_CDU_Status :
+STRUCT
+    (* --- Identification --- *)
+    nCDU_ID              : USINT;           (* CDU instance number (1..N) *)
+    
+    (* --- State --- *)
+    eState               : E_CDU_State;     (* Current state machine state *)
+    eMode                : E_CDU_Mode;      (* Active operating mode *)
+    bHealthy             : BOOL;            (* No faults active *)
+    bAtCapacity          : BOOL;            (* Pump at max, cannot cool more *)
+    
+    (* --- Process Values --- *)
+    fSupplyTemp          : REAL;            (* Validated supply temperature [°C] *)
+    fReturnTemp          : REAL;            (* Validated return temperature [°C] *)
+    fDeltaT              : REAL;            (* Return - Supply [°C] *)
+    fFlowRate_LPM        : REAL;            (* Coolant flow rate [L/min] *)
+    fDiffPressure_bar    : REAL;            (* Differential pressure [bar] *)
+    fCoolingCapacity_kW  : REAL;            (* Calculated cooling power [kW] *)
+    
+    (* --- Control Outputs --- *)
+    fPumpSpeedCmd        : REAL;            (* Pump speed command [%] *)
+    fValvePositionCmd    : REAL;            (* Valve position command [%] *)
+    bPumpRunning         : BOOL;            (* Pump motor confirmed running *)
+    bIsolationValveOpen  : BOOL;            (* Zone isolation valve state *)
+    
+    (* --- GPU Integration --- *)
+    fGPU_MaxTemp         : REAL;            (* Highest GPU temp in this zone [°C] *)
+    fGPU_TotalPower_kW   : REAL;            (* Total GPU power in this zone [kW] *)
+    fThermalHeadroom     : REAL;            (* Margin before GPU throttle [°C] *)
+    
+    (* --- Alarms (active flags) --- *)
+    bAlm_SupplyTempHigh  : BOOL;
+    bAlm_ReturnTempHigh  : BOOL;
+    bAlm_FlowLow        : BOOL;
+    bAlm_DeltaTHigh      : BOOL;
+    bAlm_PumpFault       : BOOL;
+    bAlm_LeakDetected    : BOOL;
+    bAlm_PressureHigh    : BOOL;
+    bAlm_GPUTempWarn     : BOOL;
+    
+    (* --- Diagnostics --- *)
+    nRunHours            : UDINT;           (* Pump accumulated run hours *)
+    nStartCount          : UDINT;           (* Pump start counter *)
+    nUpdateCounter       : UDINT;           (* Increments each write; staleness check *)
+END_STRUCT
+END_TYPE

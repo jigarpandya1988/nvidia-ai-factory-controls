@@ -1,0 +1,23 @@
+(* =============================================================================
+    FB_LeakDetection.bSafetyPermit — I_SafetyMonitored Property
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   Returns pre-computed safety permit flag.
+   FALSE = major leak detected, other subsystems must stop.
+   TRUE = minor leak or no leak, operation may continue.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROPERTY bSafetyPermit : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION (GET)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+bSafetyPermit := _bSafetyPermit;

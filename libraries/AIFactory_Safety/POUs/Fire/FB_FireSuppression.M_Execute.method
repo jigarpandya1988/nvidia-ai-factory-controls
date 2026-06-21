@@ -1,0 +1,167 @@
+(* =============================================================================
+    FB_FireSuppression.M_Execute — Fire Detection & Suppression State Machine
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every scan when: bEnable=TRUE AND initialized AND no fault latched.
+   
+   LOGIC:
+     1. Evaluate VESDA levels and spot detectors
+     2. Determine highest threat level
+     3. Advance state machine
+     4. Drive outputs based on current state
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── STEP 1: Evaluate Detection Inputs ─────────────────────────────────────── *)
+
+(* Find highest VESDA level across all 4 zones *)
+nMaxVESDA_Level := 0;
+FOR _i := 1 TO 4 DO
+    IF anVESDA_Level[_i] > nMaxVESDA_Level THEN
+        nMaxVESDA_Level := anVESDA_Level[_i];
+    END_IF
+END_FOR
+
+(* Count active spot detectors *)
+nSpotDetectorCount := 0;
+FOR _i := 1 TO 8 DO
+    IF abSpotDetector[_i] THEN
+        nSpotDetectorCount := nSpotDetectorCount + 1;
+    END_IF
+END_FOR
+
+(* ─── STEP 2: Abort Edge Detection ─────────────────────────────────────────── *)
+_rtrigAbort(CLK := bAbortButton);
+
+(* ─── STEP 3: State Machine ────────────────────────────────────────────────── *)
+CASE _eState OF
+
+    E_FireSuppressionState.NORMAL:
+        (* All outputs safe *)
+        bTripRequest := FALSE;
+        bSuppressRelease := FALSE;
+        bEvacAlarm := FALSE;
+        bDamperClose := FALSE;
+        _bHasActiveAlarm := FALSE;
+        _bSafetyPermit := TRUE;
+        _eSafetyState := E_SafetyState.SAFE;
+        
+        (* Transition: check for any detection *)
+        IF nMaxVESDA_Level >= 3 OR nSpotDetectorCount >= 2 THEN
+            _eState := E_FireSuppressionState.ALARM;
+        ELSIF nMaxVESDA_Level >= 2 THEN
+            _eState := E_FireSuppressionState.PRE_ALARM;
+        ELSIF nMaxVESDA_Level >= 1 THEN
+            _eState := E_FireSuppressionState.ALERT;
+        END_IF
+
+    E_FireSuppressionState.ALERT:
+        (* VESDA Level 1 — early warning, notify only *)
+        bTripRequest := FALSE;
+        bSuppressRelease := FALSE;
+        bEvacAlarm := FALSE;
+        bDamperClose := FALSE;
+        _bHasActiveAlarm := TRUE;
+        _bSafetyPermit := TRUE;
+        _eSafetyState := E_SafetyState.ALERT;
+        
+        (* Escalate or return to normal *)
+        IF nMaxVESDA_Level >= 3 OR nSpotDetectorCount >= 2 THEN
+            _eState := E_FireSuppressionState.ALARM;
+        ELSIF nMaxVESDA_Level >= 2 THEN
+            _eState := E_FireSuppressionState.PRE_ALARM;
+        ELSIF nMaxVESDA_Level = 0 AND nSpotDetectorCount = 0 THEN
+            _eState := E_FireSuppressionState.NORMAL;
+        END_IF
+
+    E_FireSuppressionState.PRE_ALARM:
+        (* VESDA Level 2 — action required, prepare *)
+        bTripRequest := FALSE;
+        bSuppressRelease := FALSE;
+        bEvacAlarm := TRUE;     (* Start evacuation warning *)
+        bDamperClose := FALSE;
+        _bHasActiveAlarm := TRUE;
+        _bSafetyPermit := TRUE;
+        _eSafetyState := E_SafetyState.ALARM;
+        
+        (* Escalate or de-escalate *)
+        IF nMaxVESDA_Level >= 3 OR nSpotDetectorCount >= 2 THEN
+            _eState := E_FireSuppressionState.ALARM;
+        ELSIF nMaxVESDA_Level <= 1 AND nSpotDetectorCount < 2 THEN
+            IF nMaxVESDA_Level >= 1 THEN
+                _eState := E_FireSuppressionState.ALERT;
+            ELSE
+                _eState := E_FireSuppressionState.NORMAL;
+            END_IF
+        END_IF
+
+    E_FireSuppressionState.ALARM:
+        (* Confirmed fire — activate alarms, start countdown *)
+        bTripRequest := TRUE;
+        bSuppressRelease := FALSE;  (* Not yet — countdown first *)
+        bEvacAlarm := TRUE;
+        bDamperClose := TRUE;
+        _bHasActiveAlarm := TRUE;
+        _bSafetyPermit := FALSE;
+        _eSafetyState := E_SafetyState.TRIPPED;
+        
+        (* Initialize countdown and advance *)
+        _fCountdownElapsed := 0.0;
+        _eState := E_FireSuppressionState.DISCHARGE_COUNTDOWN;
+
+    E_FireSuppressionState.DISCHARGE_COUNTDOWN:
+        (* Countdown to agent discharge — abort possible *)
+        bTripRequest := TRUE;
+        bSuppressRelease := FALSE;  (* Not yet *)
+        bEvacAlarm := TRUE;
+        bDamperClose := TRUE;
+        _bHasActiveAlarm := TRUE;
+        _bSafetyPermit := FALSE;
+        _eSafetyState := E_SafetyState.TRIPPED;
+        
+        (* Accumulate countdown time *)
+        _fCountdownElapsed := _fCountdownElapsed + fCycleTime_s;
+        fCountdownRemaining := fCountdownTime_s - _fCountdownElapsed;
+        
+        (* Abort: R_TRIG returns to ALARM state (held for investigation) *)
+        IF _rtrigAbort.Q THEN
+            _eState := E_FireSuppressionState.ALARM;
+            fCountdownRemaining := 0.0;
+        ELSIF fCountdownRemaining <= 0.0 THEN
+            (* Countdown complete — discharge agent *)
+            fCountdownRemaining := 0.0;
+            _eState := E_FireSuppressionState.DISCHARGED;
+        END_IF
+
+    E_FireSuppressionState.DISCHARGED:
+        (* Agent released — point of no return *)
+        bTripRequest := TRUE;
+        bSuppressRelease := TRUE;   (* RELEASE AGENT — relay energizes solenoid *)
+        bEvacAlarm := TRUE;
+        bDamperClose := TRUE;       (* Keep dampers closed to contain agent *)
+        _bHasActiveAlarm := TRUE;
+        _bSafetyPermit := FALSE;
+        _eSafetyState := E_SafetyState.TRIPPED;
+        fCountdownRemaining := 0.0;
+        
+        (* Stays in DISCHARGED until manual reset *)
+
+END_CASE
+
+(* ─── STEP 4: Update output state ──────────────────────────────────────────── *)
+eState := _eState;
+
+M_Execute := TRUE;

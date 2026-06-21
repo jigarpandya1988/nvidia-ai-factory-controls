@@ -1,0 +1,33 @@
+(* =============================================================================
+    FB_Base.M_Initialize — Virtual: One-Time Setup
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Exactly ONCE after bEnable goes TRUE, or after bReset rising edge.
+   
+   OVERRIDE IN DERIVED FB TO:
+     • Set initial output values
+     • Clear internal accumulators and state machines
+     • Configure sub-FB parameters
+     • Validate configuration inputs
+   
+   RETURN:
+     TRUE = initialization successful
+     FALSE = initialization failed (caller should M_SetFault)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Initialize : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base implementation: no-op. Derived classes override. *)
+M_Initialize := TRUE;

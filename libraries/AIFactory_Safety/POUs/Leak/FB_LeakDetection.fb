@@ -1,0 +1,107 @@
+(* =============================================================================
+    FB_LeakDetection — Zone-Based Leak Sensing Controller
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Monitors up to 16 leak sensing cable zones and classifies leak severity.
+     Drives zone isolation and EPO trip requests based on leak classification.
+   
+   LEAK CLASSIFICATION:
+     MINOR (single zone, debounced):
+       → Alarm + isolate affected zone
+       → No EPO trip
+     
+     MAJOR (multiple zones OR critical zone):
+       → Alarm + EPO trip request to PRG_Safety_Main
+       → All affected zones isolated
+   
+   DEBOUNCE:
+     500ms confirmation timer per zone prevents false triggers from
+     splashes or transient condensation on sensing cables.
+   
+   SENSING TECHNOLOGY:
+     Leak sensing cables use Normally Open (NO) contacts.
+     TRUE = leak detected (cable wetted, contact closed).
+   
+   SAFETY:
+     - Safe-state: all outputs FALSE (no trip, no isolation)
+     - R_TRIG per zone for event timestamping
+     - Runs in Safety_Task (2ms cycle)
+   
+   EXTENDS: FB_Base
+   IMPLEMENTS: I_SafetyMonitored
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_LeakDetection EXTENDS FB_Base IMPLEMENTS I_SafetyMonitored
+VAR_INPUT
+    (* ─── Leak Sensing Cable Zones (NO contact: TRUE = leak) ─── *)
+    abLeakZone           : ARRAY[1..16] OF BOOL;
+    
+    (* ─── Zone Classification (TRUE = critical zone, triggers MAJOR) ─── *)
+    abCriticalZone       : ARRAY[1..16] OF BOOL;
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.002;   (* Safety task cycle [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Trip Request (read by PRG_Safety_Main) ─── *)
+    bTripRequest         : BOOL;            (* TRUE = major leak, request EPO *)
+    
+    (* ─── Zone Status (active/inactive per zone) ─── *)
+    abZoneActive         : ARRAY[1..16] OF BOOL;  (* TRUE = confirmed leak *)
+    
+    (* ─── Isolation Commands ─── *)
+    abIsolateZone        : ARRAY[1..16] OF BOOL;  (* TRUE = isolate this zone *)
+    
+    (* ─── Status ─── *)
+    bMinorLeak           : BOOL;            (* At least one minor leak active *)
+    bMajorLeak           : BOOL;            (* Major leak condition active *)
+    nActiveZoneCount     : USINT;           (* Number of confirmed leak zones *)
+    
+    (* ─── Alarms ─── *)
+    bAlm_LeakMinor       : BOOL;            (* Minor leak alarm *)
+    bAlm_LeakMajor       : BOOL;            (* Major leak alarm *)
+END_VAR
+
+VAR
+    (* ─── Debounce Timers (500ms per zone) ─── *)
+    _afDebounceAccum     : ARRAY[1..16] OF REAL;  (* Accumulated time [s] *)
+    
+    (* ─── Edge Triggers (one per zone for event timestamping) ─── *)
+    _artrigZone          : ARRAY[1..16] OF R_TRIG;
+    
+    (* ─── Confirmed State (post-debounce) ─── *)
+    _abConfirmed         : ARRAY[1..16] OF BOOL;
+    
+    (* ─── Safety Interface ─── *)
+    _bSafetyPermit       : BOOL := TRUE;
+    _eSafetyState        : E_SafetyState := E_SafetyState.SAFE;
+    _bHasActiveAlarm     : BOOL;
+    
+    (* ─── Loop Variable ─── *)
+    _i                   : USINT;
+END_VAR
+
+VAR CONSTANT
+    C_MAX_ZONES          : USINT := 16;
+    C_DEBOUNCE_TIME_S    : REAL := 0.5;     (* 500ms debounce *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Leak detection is SAFETY CRITICAL — base class handles lifecycle.
+   M_Execute performs the actual detection logic when in RUNNING state.
+   Safe-state is enforced by M_SafeState when disabled/faulted. *)
+
+SUPER^();

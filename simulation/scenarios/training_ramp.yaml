@@ -1,0 +1,41 @@
+# =============================================================================
+# Scenario: Training Ramp — GPU load increases from idle to full training
+# =============================================================================
+# Simulates a large model training job starting up:
+#   0-10s:  Idle (data loading, model init)
+#   10-30s: Ramp to full power (forward/backward passes scaling up)
+#   30s+:   Sustained full training (all GPUs at 100%)
+#
+# Control system should:
+#   - Increase pump speed proactively (feedforward from GPU power)
+#   - Supply temperature stays within ±1°C of setpoint
+#   - No GPU throttling (junction temp < 83°C)
+# =============================================================================
+
+name: training_ramp
+description: "Large model training job startup"
+duration_s: 120
+
+workload_profile:
+  - time_s: 0
+    load_fraction: 0.1    # Idle
+  - time_s: 10
+    load_fraction: 0.1    # Still idle
+  - time_s: 30
+    load_fraction: 1.0    # Full training
+  - time_s: 120
+    load_fraction: 1.0    # Sustained
+
+ambient:
+  dry_bulb_c: 25.0
+  wet_bulb_c: 20.0
+
+control_settings:
+  pump_speed_initial_pct: 40
+  valve_position_initial_pct: 50
+  supply_temp_setpoint_c: 35.0
+
+pass_criteria:
+  gpu_max_temp_c: 83.0           # Must stay below
+  supply_temp_deviation_c: 2.0   # Must stay within ±2°C of SP
+  settling_time_s: 60.0          # Must settle within 60s of load change

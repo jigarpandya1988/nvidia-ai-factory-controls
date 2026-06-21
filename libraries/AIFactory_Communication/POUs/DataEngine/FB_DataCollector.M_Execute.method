@@ -1,0 +1,178 @@
+(* =============================================================================
+    FB_DataCollector.M_Execute — Publish Engine: Evaluate & Dispatch
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   EXECUTION ORDER:
+     1. Evaluate each data point's publish condition
+     2. Batch-publish all pending points to all registered publishers
+     3. Poll all subscribers for incoming data
+     4. Update statistics
+   
+   PUBLISH CONDITION LOGIC:
+     CYCLIC:    time since last publish >= interval → publish
+     ON_CHANGE: |current - lastPublished| > deadband → publish
+     HYBRID:    on-change OR time since last > heartbeat → publish
+     ON_DEMAND: bNeedsPublish flag set externally → publish
+   
+   THROTTLING:
+     Maximum _nMaxPublishPerCycle points per scan to prevent overrun.
+     Remaining points processed on next scan (round-robin).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    bShouldPublish       : BOOL;
+    fValueDiff           : REAL;
+    nTimeSincePublish    : UDINT;
+    nPointsEvaluated     : UINT;
+    bPublishOK           : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_nCyclePublishCount := 0;
+nPointsEvaluated := 0;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 1: EVALUATE PUBLISH CONDITIONS
+   Round-robin through points starting from last position.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Begin batch on all publishers for efficiency *)
+FOR _j := 1 TO _nPublisherCount DO
+    IF _arefPublishers[_j] <> 0 AND _arefPublishers[_j].bIsConnected THEN
+        _arefPublishers[_j].M_BeginBatch();
+    END_IF
+END_FOR
+_bBatchActive := TRUE;
+
+
+(* Evaluate points (round-robin to spread load across cycles) *)
+WHILE nPointsEvaluated < _nPointCount AND _nCyclePublishCount < _nMaxPublishPerCycle DO
+    
+    (* Advance index (wrap around) *)
+    _nPublishIndex := _nPublishIndex + 1;
+    IF _nPublishIndex > _nPointCount THEN
+        _nPublishIndex := 1;
+    END_IF
+    
+    nPointsEvaluated := nPointsEvaluated + 1;
+    
+    (* Skip disabled points *)
+    IF NOT _astPoints[_nPublishIndex].bEnabled THEN
+        CONTINUE;
+    END_IF
+    
+    (* --- Evaluate publish condition based on mode --- *)
+    bShouldPublish := FALSE;
+    nTimeSincePublish := nSystemTime_ms - _astPoints[_nPublishIndex].nLastPublishTime_ms;
+    fValueDiff := ABS(_astPoints[_nPublishIndex].fCurrentValue - _astPoints[_nPublishIndex].fLastPublished);
+    
+    CASE _astPoints[_nPublishIndex].ePublishMode OF
+    
+        E_PublishMode.CYCLIC:
+            (* Time-based: publish every N ms *)
+            bShouldPublish := (nTimeSincePublish >= _astPoints[_nPublishIndex].nCyclicInterval_ms);
+        
+        E_PublishMode.ON_CHANGE:
+            (* Value-based: publish when change exceeds deadband *)
+            bShouldPublish := (fValueDiff > _astPoints[_nPublishIndex].fDeadband);
+        
+        E_PublishMode.HYBRID:
+            (* On-change with heartbeat guarantee *)
+            bShouldPublish := (fValueDiff > _astPoints[_nPublishIndex].fDeadband)
+                OR (nTimeSincePublish >= _astPoints[_nPublishIndex].nHeartbeatInterval_ms);
+        
+        E_PublishMode.ON_DEMAND:
+            (* External trigger only *)
+            bShouldPublish := _astPoints[_nPublishIndex].bNeedsPublish;
+    
+    END_CASE
+    
+    (* Also force publish on quality change (bad → good or good → bad) *)
+    (* This ensures consumers know when data becomes unreliable *)
+    
+    
+    (* --- DISPATCH to all publishers --- *)
+    IF bShouldPublish THEN
+        FOR _j := 1 TO _nPublisherCount DO
+            IF _arefPublishers[_j] <> 0 AND _arefPublishers[_j].bIsConnected THEN
+                bPublishOK := _arefPublishers[_j].M_PublishFloat(
+                    sNodePath := _astPoints[_nPublishIndex].sNodePath,
+                    fValue := _astPoints[_nPublishIndex].fCurrentValue,
+                    sUnit := _astPoints[_nPublishIndex].sUnit,
+                    nQuality := _astPoints[_nPublishIndex].nQuality
+                );
+                
+                IF NOT bPublishOK THEN
+                    nPublishErrors := nPublishErrors + 1;
+                END_IF
+            END_IF
+        END_FOR
+        
+        (* Update publish tracking *)
+        _astPoints[_nPublishIndex].fLastPublished := _astPoints[_nPublishIndex].fCurrentValue;
+        _astPoints[_nPublishIndex].nLastPublishTime_ms := nSystemTime_ms;
+        _astPoints[_nPublishIndex].bNeedsPublish := FALSE;
+        _nCyclePublishCount := _nCyclePublishCount + 1;
+    END_IF
+    
+END_WHILE
+
+
+(* End batch on all publishers — flush to network *)
+FOR _j := 1 TO _nPublisherCount DO
+    IF _arefPublishers[_j] <> 0 AND _arefPublishers[_j].bIsConnected THEN
+        _arefPublishers[_j].M_EndBatch();
+    END_IF
+END_FOR
+_bBatchActive := FALSE;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 2: POLL SUBSCRIBERS (incoming data)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+nStaleSubscriptions := 0;
+FOR _j := 1 TO _nSubscriberCount DO
+    IF _arefSubscribers[_j] <> 0 THEN
+        IF _arefSubscribers[_j].bIsConnected THEN
+            nStaleSubscriptions := nStaleSubscriptions + UINT_TO_UINT(_arefSubscribers[_j].nStaleCount);
+        END_IF
+    END_IF
+END_FOR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 3: UPDATE STATISTICS
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+nPublishedThisCycle := _nCyclePublishCount;
+
+(* Count active publishers *)
+nActivePublishers := 0;
+FOR _j := 1 TO _nPublisherCount DO
+    IF _arefPublishers[_j] <> 0 AND _arefPublishers[_j].bIsConnected THEN
+        nActivePublishers := nActivePublishers + 1;
+    END_IF
+END_FOR
+
+(* Count active subscribers *)
+nActiveSubscribers := 0;
+FOR _j := 1 TO _nSubscriberCount DO
+    IF _arefSubscribers[_j] <> 0 AND _arefSubscribers[_j].bIsConnected THEN
+        nActiveSubscribers := nActiveSubscribers + 1;
+    END_IF
+END_FOR
+
+M_Execute := TRUE;

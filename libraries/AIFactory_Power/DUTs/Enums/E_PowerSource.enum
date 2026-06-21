@@ -1,0 +1,33 @@
+(* =============================================================================
+    E_PowerSource — Active Power Source Identification
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   NVIDIA 800VDC ARCHITECTURE (from research):
+     Utility → Medium Voltage Switchgear → Step-down Transformer →
+       → Active Front End (AFE) Rectifier → 800VDC Bus →
+         → Point-of-Load converters → GPU/Server
+   
+     Battery backup connects DIRECTLY to 800VDC bus (no inverter needed).
+     This eliminates one conversion stage vs. traditional UPS.
+   
+   REFERENCE:
+     - NVIDIA 800 VDC Architecture (developer.nvidia.com)
+     - Delta 800VDC In-Row 660kW Power Racks with 480kW embedded BBU
+     - ABB/NVIDIA collaboration for 1MW rack power delivery
+     - TI 800VDC complete power architecture
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PowerSource :
+(
+    UTILITY_A       := 0,   (* Primary utility feed *)
+    UTILITY_B       := 1,   (* Secondary/redundant utility feed *)
+    GENERATOR       := 2,   (* Diesel/gas generator *)
+    BATTERY_DC      := 3,   (* 800VDC battery (direct bus connection) *)
+    UPS_AC          := 4,   (* Traditional AC UPS (legacy systems) *)
+    SOLAR_DC        := 5,   (* On-site solar (DC-coupled) *)
+    FUEL_CELL       := 6    (* Fuel cell (emerging) *)
+);
+END_TYPE

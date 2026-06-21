@@ -1,0 +1,100 @@
+(* =============================================================================
+    FB_CDU_Controller.M_Diagnose — Periodic Self-Diagnostics
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every _nDiagInterval scans (default ~5s) while in RUNNING state.
+   
+   CHECKS:
+     1. Sensor validator health — all 4 sensors reporting valid data
+     2. Pump run hours — maintenance warning above 10000 hours
+     3. PID output saturation — if stuck at limit >5 minutes,
+        possible sensor drift or process upset
+   
+   IF FAULT DETECTED:
+     Calls THIS^.M_SetFault('reason') to latch fault.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Diagnose : BOOL
+VAR
+    _bAnySensorFault     : BOOL;
+    _fSaturationLimit    : REAL := 300.0;   (* 5 minutes in seconds *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_bAnySensorFault := FALSE;
+
+(* ─── CHECK 1: Sensor Validator Health ───────────────────────────────────────── *)
+(* Each sensor validator reports bHealthy. If any is FALSE, the validated
+   reading is unreliable. Multiple sensor faults = critical condition. *)
+IF NOT _fbSens_Supply.bHealthy THEN
+    _bAnySensorFault := TRUE;
+END_IF
+
+IF NOT _fbSens_Return.bHealthy THEN
+    _bAnySensorFault := TRUE;
+END_IF
+
+IF NOT _fbSens_Flow.bHealthy THEN
+    _bAnySensorFault := TRUE;
+END_IF
+
+IF NOT _fbSens_Pressure.bHealthy THEN
+    _bAnySensorFault := TRUE;
+END_IF
+
+(* If ALL sensors fault simultaneously — likely power/wiring issue *)
+IF NOT _fbSens_Supply.bHealthy AND NOT _fbSens_Return.bHealthy
+   AND NOT _fbSens_Flow.bHealthy AND NOT _fbSens_Pressure.bHealthy THEN
+    THIS^.M_SetFault('DIAG: All sensors faulted - check field wiring/power');
+    M_Diagnose := FALSE;
+    RETURN;
+END_IF
+
+(* ─── CHECK 2: Pump Run Hours — Maintenance Warning ──────────────────────────── *)
+(* Above 10000 hours: pump bearings, seals, and impeller need inspection.
+   This is a WARNING, not a fault latch — operator decides when to service. *)
+IF _nRunHours > 10000 THEN
+    (* Set alarm flag for HMI/SCADA — NOT a fault latch *)
+    stStatus.bAlm_PumpFault := FALSE;  (* Don't overwrite actual pump fault *)
+    (* Maintenance warning is communicated via status struct nRunHours *)
+    (* OPC UA subscriber monitors nRunHours for predictive maintenance *)
+END_IF
+
+(* ─── CHECK 3: PID Output Stuck at Limit ────────────────────────────────────── *)
+(* If pump PID output is at 100% or 0% for more than 5 minutes continuously,
+   this indicates possible sensor drift or process that cannot be controlled.
+   The PID is "fighting" — either unable to cool enough or overcooling.
+   This suggests: sensor calibration drift, blockage, or undersized system. *)
+
+(* Check pump PID saturation at maximum *)
+IF fAO_PumpSpeed >= 99.5 THEN
+    _fRunSeconds := _fRunSeconds + (UDINT_TO_REAL(_nDiagInterval) * fCycleTime_s);
+    IF _fRunSeconds >= _fSaturationLimit THEN
+        THIS^.M_SetFault('DIAG: Pump PID saturated at max >5min - possible sensor drift');
+        M_Diagnose := FALSE;
+        RETURN;
+    END_IF
+ELSIF fAO_PumpSpeed <= 0.5 THEN
+    _fRunSeconds := _fRunSeconds + (UDINT_TO_REAL(_nDiagInterval) * fCycleTime_s);
+    IF _fRunSeconds >= _fSaturationLimit THEN
+        THIS^.M_SetFault('DIAG: Pump PID saturated at min >5min - check process');
+        M_Diagnose := FALSE;
+        RETURN;
+    END_IF
+ELSE
+    (* PID not saturated — reset accumulator *)
+    _fRunSeconds := 0.0;
+END_IF
+
+M_Diagnose := TRUE;

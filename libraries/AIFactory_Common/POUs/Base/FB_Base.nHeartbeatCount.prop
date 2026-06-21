@@ -1,0 +1,10 @@
+(* =============================================================================
+    FB_Base.nHeartbeatCount — I_Controllable Property Implementation
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+(* ═══ DECLARATION ═══ *)
+PROPERTY nHeartbeatCount : UDINT
+
+(* ═══ IMPLEMENTATION (GET) ═══ *)
+nHeartbeatCount := nHeartbeat;

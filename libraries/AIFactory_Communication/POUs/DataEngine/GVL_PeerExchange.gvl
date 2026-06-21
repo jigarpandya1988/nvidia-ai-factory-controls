@@ -1,0 +1,68 @@
+(* =============================================================================
+    GVL_PeerExchange — Inter-IPC Peer Data Exchange Buffer
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Shared memory for peer-to-peer IPC communication.
+     Written by the Control_Task (fastest), read by all tasks.
+   
+   DATA FLOW:
+     Control_Task writes stMyData → FB_PeerExchange sends to network
+     FB_PeerExchange receives from network → writes astPeerData
+     All tasks read astPeerData for their peer coordination needs
+   
+   TOPOLOGY:
+     ┌─────────┐         UDP/OPC UA          ┌─────────┐
+     │ IPC-01  │◄════════════════════════════►│ IPC-02  │
+     │ (Power) │         Full Mesh            │(Cooling)│
+     └────┬────┘                              └────┬────┘
+          │           ┌─────────┐                  │
+          └══════════►│ IPC-04  │◄═════════════════┘
+                      │ (Safety)│
+          ┌══════════►│         │◄═════════════════┐
+          │           └────┬────┘                  │
+     ┌────┴────┐           │                 ┌────┴────┐
+     │ IPC-03  │◄══════════╝                 │  Edge   │
+     │(Environ)│                             │ Gateway │
+     └─────────┘                             └─────────┘
+   
+   SAFETY INVARIANT:
+     If GVL_PeerExchange.bAllPeersSafetyOK = FALSE, the local IPC
+     MUST enter degraded operation or safe-state (depending on subsystem).
+   
+   THREAD SAFETY:
+     ST_PeerData is 128 bytes — fits in a cache line on most platforms.
+     Written as atomic struct copy by owning task. Read by others at
+     their cycle boundaries (cooperative scheduling ensures consistency).
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* ─── My Outbound Data (populated by Control_Task) ─── *)
+    stMyData             : ST_PeerData;
+    
+    (* ─── Received Peer Data (populated by PeerExchange FB) ─── *)
+    stPeer_Power         : ST_PeerData;     (* From IPC-01 *)
+    stPeer_Cooling       : ST_PeerData;     (* From IPC-02 *)
+    stPeer_Environment   : ST_PeerData;     (* From IPC-03 *)
+    stPeer_Safety        : ST_PeerData;     (* From IPC-04 *)
+    
+    (* ─── Aggregate Status (computed by PeerExchange FB) ─── *)
+    bAllPeersSafetyOK    : BOOL := TRUE;    (* All peers permit operation *)
+    bAnyPeerEmergency    : BOOL := FALSE;   (* Any peer in emergency *)
+    bAnyPeerDead         : BOOL := FALSE;   (* Any peer not responding *)
+    
+    (* ─── Per-Peer Health ─── *)
+    bPeer_Power_Alive    : BOOL;
+    bPeer_Cooling_Alive  : BOOL;
+    bPeer_Environment_Alive : BOOL;
+    bPeer_Safety_Alive   : BOOL;
+    
+    (* ─── Cross-IPC Coordination Commands ─── *)
+    (* These are SET by one IPC and READ by another for real-time coordination *)
+    bCmd_PowerShed       : BOOL;            (* Cooling→Power: need load reduction *)
+    bCmd_MaxCool         : BOOL;            (* Power→Cooling: thermal emergency *)
+    bCmd_StopCooling     : BOOL;            (* Safety→Cooling: stop pumps (leak) *)
+    bCmd_EmergencyVent   : BOOL;            (* Safety→Environment: start purge fans *)
+END_VAR

@@ -1,0 +1,23 @@
+(* =============================================================================
+    ST_ZoneStatus — Environmental Zone Status Snapshot
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+TYPE ST_ZoneStatus :
+STRUCT
+    sZoneName            : STRING(32);
+    eState               : E_ZoneState;
+    fTemperature         : REAL;            (* Validated average [°C] *)
+    fHumidity            : REAL;            (* Relative humidity [%RH] *)
+    fDewPoint            : REAL;            (* Calculated dew point [°C] *)
+    fCondensationMargin  : REAL;            (* Temp - DewPoint [°C] *)
+    fParticleCount       : REAL;            (* Particles [count/m³] *)
+    bAlm_TempHigh        : BOOL;
+    bAlm_TempLow         : BOOL;
+    bAlm_HumidityHigh    : BOOL;
+    bAlm_Condensation    : BOOL;
+    bSensorFault         : BOOL;
+    bHealthy             : BOOL;
+    nUpdateCounter       : UDINT;
+END_STRUCT
+END_TYPE

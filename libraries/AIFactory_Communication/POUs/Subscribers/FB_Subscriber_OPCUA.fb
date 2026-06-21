@@ -1,0 +1,71 @@
+(* =============================================================================
+    FB_Subscriber_OPCUA — OPC UA Client Subscriber
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataSubscriber using CODESYS OPC UA client.
+     Reads data FROM external OPC UA servers:
+       • Other IPCs (IPC-01 reading safety status from IPC-04)
+       • Edge gateway (GPU telemetry exposed via OPC UA)
+       • Third-party equipment (CDU controllers, UPS, PDU)
+   
+   USE CASE:
+     • Inter-IPC data exchange (OPC UA is the primary protocol)
+     • Reading GPU telemetry from edge gateway
+     • Collecting data from BMS/DCIM systems
+   
+   CONNECTION MODEL:
+     CODESYS OPC UA Client device is added in the project tree.
+     Variables are mapped in the Symbol Configuration of the client device.
+     This FB wraps that mechanism with the I_DataSubscriber interface.
+   
+   FRESHNESS MONITORING:
+     Each subscribed variable tracks its last-update time.
+     If a variable hasn't updated within expected interval × 3, it's
+     marked as STALE. Consumer logic can then use fallback values.
+   
+   REQUIRES:
+     CODESYS OPC UA Client device in project (CmpOPCUAClient).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Subscriber_OPCUA IMPLEMENTS I_DataSubscriber
+VAR_INPUT
+    (* --- Connection Configuration --- *)
+    sServerURL           : STRING(128) := 'opc.tcp://192.168.100.100:4840';
+    sServerName          : STRING(64) := 'EdgeGateway';
+    nReconnectInterval_s : UINT := 5;
+    nDefaultTimeout_ms   : UDINT := 5000;
+END_VAR
+
+VAR
+    _bConnected          : BOOL;
+    _nSubscriptionCount  : UDINT;
+    _nStaleCount         : UDINT;
+    
+    (* Subscription tracking *)
+    _astSubscriptions    : ARRAY[1..100] OF ST_Subscription;
+    _nSubCount           : UINT;
+    
+    (* Connection management *)
+    _tonReconnect        : TON;
+    _bReconnecting       : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* OPC UA client connection management.
+   In CODESYS, the OPC UA Client device handles connection automatically.
+   This FB monitors the connection state and tracks data freshness. *)
+
+(* Check for stale subscriptions *)
+_nStaleCount := 0;
+(* Would iterate _astSubscriptions and check age vs. expected interval *)

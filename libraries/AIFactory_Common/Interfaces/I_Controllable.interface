@@ -1,0 +1,55 @@
+(* =============================================================================
+    I_Controllable — Interface for all controllable subsystems
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Defines the contract that every controllable subsystem must implement.
+     Enables polymorphic handling of heterogeneous controllers (CDU, PDU, etc.)
+     by supervisory logic and OPC UA publishing.
+   
+   DESIGN:
+     - Properties provide read-only status access
+     - Methods provide command interface
+     - Any FB implementing this can be managed by the Supervisor pattern
+   
+   SAFETY:
+     GetHealthy() returning FALSE means the subsystem is in safe-state.
+     The supervisor MUST NOT issue commands to unhealthy subsystems.
+   ============================================================================= *)
+
+INTERFACE I_Controllable
+
+(* --- Status Properties --- *)
+
+PROPERTY bIsHealthy : BOOL   (* TRUE when subsystem operating normally *)
+GET;
+END_PROPERTY
+
+PROPERTY bIsReady : BOOL     (* TRUE when initialized and accepting commands *)
+GET;
+END_PROPERTY
+
+PROPERTY eCurrentLifecycle : E_Lifecycle  (* Current lifecycle state *)
+GET;
+END_PROPERTY
+
+PROPERTY nHeartbeatCount : UDINT  (* Incrementing scan counter for watchdog *)
+GET;
+END_PROPERTY
+
+(* --- Command Methods --- *)
+
+METHOD M_Enable : BOOL       (* Enable the subsystem; returns TRUE on success *)
+END_METHOD
+
+METHOD M_Disable : BOOL      (* Disable → safe-state; returns TRUE on success *)
+END_METHOD
+
+METHOD M_Reset : BOOL        (* Clear faults and re-initialize *)
+END_METHOD
+
+METHOD M_EmergencyStop : BOOL  (* Immediate safe-state, no ramp-down *)
+END_METHOD
+
+END_INTERFACE

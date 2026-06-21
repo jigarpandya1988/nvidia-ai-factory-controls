@@ -1,0 +1,28 @@
+(* =============================================================================
+    E_AlarmSeverity — Alarm Priority Classification
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Unified alarm severity across all IPCs. Maps to escalation procedures
+     defined in config/alarms/alarm-definitions.yaml.
+   
+   ESCALATION:
+     CRITICAL → Immediate notification (SMS + phone + pager)
+     HIGH     → 5 min escalation (SMS + email)
+     MEDIUM   → 30 min escalation (email)
+     LOW      → Next maintenance window (email digest)
+     INFO     → Logged only, no notification
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_AlarmSeverity :
+(
+    INFO        := 0,   (* Informational; logged, no action required *)
+    LOW         := 1,   (* Low priority; review at convenience *)
+    MEDIUM      := 2,   (* Medium priority; attention within shift *)
+    HIGH        := 3,   (* High priority; immediate operator attention *)
+    CRITICAL    := 4    (* Critical; immediate action, potential equipment damage *)
+);
+END_TYPE

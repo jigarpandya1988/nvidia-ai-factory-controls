@@ -1,0 +1,90 @@
+(* =============================================================================
+    FB_TestSuite — Unit Test Framework for CODESYS
+    Test Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Lightweight xUnit-style test framework compatible with CODESYS
+     Test Manager. Provides assertion methods, test lifecycle, and
+     result collection.
+   
+   USAGE:
+     1. Create a test FB that EXTENDS FB_TestSuite
+     2. Override M_RunTests — call assertion methods
+     3. Add test FB to CODESYS Test Manager configuration
+     4. Run tests: Online → Test Manager → Run All
+   
+   ASSERTIONS:
+     AssertTrue(condition, 'message')
+     AssertFalse(condition, 'message')
+     AssertEquals_REAL(expected, actual, tolerance, 'message')
+     AssertEquals_INT(expected, actual, 'message')
+     AssertEquals_BOOL(expected, actual, 'message')
+     AssertInRange(value, min, max, 'message')
+     AssertGreater(value, threshold, 'message')
+     AssertLess(value, threshold, 'message')
+   
+   COMPATIBILITY:
+     Works with CODESYS Test Manager (produces compatible results).
+     Also works standalone: run test FB manually, check stResults.
+   
+   CI/CD:
+     CODESYS Automation Server can run tests headless and export JUnit XML.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_TestSuite
+VAR_INPUT
+    bRunTests            : BOOL;            (* Rising edge triggers test execution *)
+END_VAR
+
+VAR_OUTPUT
+    bDone                : BOOL;            (* Tests completed *)
+    bAllPassed           : BOOL;            (* TRUE if zero failures *)
+    nTestsRun            : UINT;            (* Number of tests executed *)
+    nTestsPassed         : UINT;            (* Passed count *)
+    nTestsFailed         : UINT;            (* Failed count *)
+    sLastFailure         : STRING(255);     (* Last failure message *)
+    sSuiteName           : STRING(64);      (* Test suite identifier *)
+END_VAR
+
+VAR
+    _bRunPrev            : BOOL;
+    _rtrigRun            : R_TRIG;
+    _sCurrentTest        : STRING(64);      (* Current test being executed *)
+    _bCurrentTestFailed  : BOOL;            (* Current test has a failure *)
+    
+    (* --- Result Buffer --- *)
+    _astResults          : ARRAY[1..100] OF ST_TestResult;
+    _nResultCount        : UINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_rtrigRun(CLK := bRunTests);
+
+IF _rtrigRun.Q THEN
+    (* Reset counters *)
+    nTestsRun := 0;
+    nTestsPassed := 0;
+    nTestsFailed := 0;
+    sLastFailure := '';
+    _nResultCount := 0;
+    bDone := FALSE;
+    bAllPassed := FALSE;
+    
+    (* Execute tests (override in derived FB) *)
+    THIS^.M_RunTests();
+    
+    (* Finalize *)
+    bDone := TRUE;
+    bAllPassed := (nTestsFailed = 0);
+END_IF

@@ -1,0 +1,36 @@
+(* =============================================================================
+    FB_PID.M_Initialize — Reset PID Internal State
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Initialize : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Clear all internal state for clean start *)
+_fIntegral := 0.0;
+_fDerivState := 0.0;
+_fPV_Prev := fProcessValue;    (* Initialize to current PV — no derivative kick *)
+_fOutputPrev := fSafeOutput;
+_bWindupHigh := FALSE;
+_bWindupLow := FALSE;
+
+(* Clear outputs *)
+fOutput := fSafeOutput;
+fError := 0.0;
+fP_Term := 0.0;
+fI_Term := 0.0;
+fD_Term := 0.0;
+bAtUpperLimit := FALSE;
+bAtLowerLimit := FALSE;
+bIsManual := FALSE;
+
+M_Initialize := TRUE;

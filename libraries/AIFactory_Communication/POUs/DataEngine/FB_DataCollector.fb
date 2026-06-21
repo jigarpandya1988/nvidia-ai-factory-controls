@@ -1,0 +1,126 @@
+(* =============================================================================
+    FB_DataCollector — Multi-Protocol Data Collection & Publishing Engine
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Central data broker that:
+       1. COLLECTS data from control FBs (via GVL_CrossTask snapshots)
+       2. EVALUATES publish conditions (deadband, timing, change-of-value)
+       3. DISPATCHES to multiple publishers simultaneously (fan-out)
+       4. RECEIVES data from external sources via subscribers (fan-in)
+   
+   ARCHITECTURE:
+     ┌──────────────────────────────────────────────────────────────────┐
+     │                    FB_DataCollector                               │
+     │                                                                  │
+     │  ┌─────────────┐    ┌──────────────┐    ┌──────────────────┐   │
+     │  │ Data Points │    │  Publish     │    │  Publishers[]    │   │
+     │  │ Registry    │───→│  Engine      │───→│  (I_DataPublisher)│   │
+     │  │ (ST_Data    │    │  (deadband,  │    │  ├─ OPC UA       │   │
+     │  │  Point[])   │    │   timing,    │    │  ├─ MQTT         │   │
+     │  │             │    │   CoV eval)  │    │  ├─ Modbus       │   │
+     │  └─────────────┘    └──────────────┘    │  └─ SharedMem    │   │
+     │                                          └──────────────────┘   │
+     │  ┌─────────────────────────────────────────────────────────┐   │
+     │  │  Subscribers[] (I_DataSubscriber)                        │   │
+     │  │  ├─ OPC UA client (other IPCs)                          │   │
+     │  │  ├─ MQTT subscribe (cloud commands)                     │   │
+     │  │  └─ REST client (GPU telemetry)                         │   │
+     │  └─────────────────────────────────────────────────────────┘   │
+     └──────────────────────────────────────────────────────────────────┘
+   
+   MULTI-PROTOCOL CHOICE:
+     Publishers and subscribers are registered at startup via
+     M_AddPublisher / M_AddSubscriber. You can register ANY combination:
+       • OPC UA only (traditional SCADA)
+       • MQTT only (cloud-native)
+       • OPC UA + MQTT (dual-path redundancy)
+       • All protocols (maximum integration)
+   
+   PUBLISH MODES:
+     CYCLIC     — Every N milliseconds, regardless of value change
+     ON_CHANGE  — Only when value differs from last publish by > deadband
+     HYBRID     — On-change with guaranteed heartbeat (max silence interval)
+     ON_DEMAND  — Only when explicitly triggered (events, alarms)
+   
+   PERFORMANCE:
+     At 100ms cycle with 500 data points:
+       CYCLIC mode:    500 publishes/cycle = 5000/s (high bandwidth)
+       ON_CHANGE mode: ~50 publishes/cycle = 500/s (typical)
+       HYBRID mode:    ~80 publishes/cycle = 800/s (balanced)
+   
+   RACE CONDITION PREVENTION:
+     • Runs in Communication_Task (100ms cycle, priority 5)
+     • Reads from GVL_CrossTask at START of cycle (atomic struct copy)
+     • Writes to GVL_CrossTask at END of cycle (subscriber data)
+     • Never accesses control FB internals directly
+   
+   TASK ASSIGNMENT:
+     Communication_Task — Priority 5, Cycle 100ms
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_DataCollector EXTENDS FB_Base
+VAR_INPUT
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.1;     (* Communication task cycle [seconds] *)
+    nSystemTime_ms       : UDINT;           (* System millisecond counter *)
+END_VAR
+
+VAR_OUTPUT
+    (* --- Statistics --- *)
+    nTotalPoints         : UINT;            (* Registered data points *)
+    nPublishedThisCycle  : UINT;            (* Points published this scan *)
+    nPublishErrors       : UDINT;           (* Cumulative publish failures *)
+    nSubscribedPoints    : UINT;            (* Active subscriptions *)
+    nStaleSubscriptions  : UINT;            (* Subscriptions with stale data *)
+    nActivePublishers    : USINT;           (* Connected publishers *)
+    nActiveSubscribers   : USINT;           (* Connected subscribers *)
+END_VAR
+
+VAR
+    (* --- Data Point Registry --- *)
+    _astPoints           : ARRAY[1..500] OF ST_DataPoint;  (* Max 500 points *)
+    _nPointCount         : UINT;
+    
+    (* --- Publisher Registry (Strategy Pattern) --- *)
+    _arefPublishers      : ARRAY[1..8] OF I_DataPublisher; (* Max 8 backends *)
+    _nPublisherCount     : USINT;
+    
+    (* --- Subscriber Registry --- *)
+    _arefSubscribers     : ARRAY[1..8] OF I_DataSubscriber; (* Max 8 sources *)
+    _nSubscriberCount    : USINT;
+    
+    (* --- Internal --- *)
+    _nPublishIndex       : UINT;            (* Current point being evaluated *)
+    _nMaxPublishPerCycle : UINT := 100;     (* Throttle: max publishes per scan *)
+    _nCyclePublishCount  : UINT;            (* Counter for this cycle *)
+    _bBatchActive        : BOOL;            (* Batch mode active *)
+    
+    (* --- Loop Variables --- *)
+    _i                   : UINT;
+    _j                   : USINT;
+END_VAR
+
+VAR CONSTANT
+    C_MAX_POINTS         : UINT := 500;
+    C_MAX_PUBLISHERS     : USINT := 8;
+    C_MAX_SUBSCRIBERS    : USINT := 8;
+    C_QUALITY_GOOD       : USINT := 0;
+    C_QUALITY_UNCERTAIN  : USINT := 1;
+    C_QUALITY_BAD        : USINT := 2;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Lifecycle managed by FB_Base *)
+SUPER^();

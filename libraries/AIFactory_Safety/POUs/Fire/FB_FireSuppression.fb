@@ -1,0 +1,112 @@
+(* =============================================================================
+    FB_FireSuppression — VESDA + Suppression Sequence Controller
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Controls one fire suppression zone using VESDA aspirating detection
+     and conventional spot detectors. Implements a state machine from
+     detection through pre-discharge countdown to agent release.
+   
+   DETECTION INPUTS:
+     - 4x VESDA zone levels (USINT: 0=Normal, 1=Alert, 2=Action, 3=Fire)
+     - 8x spot smoke detectors (BOOL: TRUE = smoke detected)
+   
+   STATE MACHINE:
+     NORMAL → ALERT → PRE_ALARM → ALARM → DISCHARGE_COUNTDOWN → DISCHARGED
+   
+   TRANSITION LOGIC:
+     - VESDA Level 1 (Alert) → ALERT state
+     - VESDA Level 2 (Action) → PRE_ALARM state
+     - VESDA Level 3 (Fire) OR 2+ spot detectors → ALARM state
+     - ALARM → 30s countdown → DISCHARGED (configurable)
+   
+   ABORT:
+     R_TRIG on abort button during countdown returns to ALARM (held for
+     investigation). Abort does NOT discharge, does NOT return to NORMAL.
+   
+   OUTPUTS:
+     - bTripRequest: EPO trip coordination
+     - bSuppressRelease: drives relay to solenoid discharge valve
+     - bEvacAlarm: evacuation horn/strobe
+     - bDamperClose: HVAC damper closure for agent containment
+   
+   SAFE-STATE:
+     bSuppressRelease=FALSE (do NOT discharge), bEvacAlarm=FALSE,
+     bTripRequest=FALSE. Safe-state means NO action — agents stay contained.
+   
+   HARDWIRED:
+     bSuppressRelease drives a relay to the solenoid valve on the
+     suppression cylinder. Relay de-energized = valve closed = safe.
+   
+   EXTENDS: FB_Base
+   IMPLEMENTS: I_SafetyMonitored
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_FireSuppression EXTENDS FB_Base IMPLEMENTS I_SafetyMonitored
+VAR_INPUT
+    (* ─── VESDA Zone Levels (0=Normal, 1=Alert, 2=Action, 3=Fire) ─── *)
+    anVESDA_Level        : ARRAY[1..4] OF USINT;
+    
+    (* ─── Spot Smoke Detectors (TRUE = smoke detected) ─── *)
+    abSpotDetector       : ARRAY[1..8] OF BOOL;
+    
+    (* ─── Abort Button (R_TRIG aborts countdown) ─── *)
+    bAbortButton         : BOOL;
+    
+    (* ─── Configuration ─── *)
+    fCountdownTime_s     : REAL := 30.0;    (* Pre-discharge countdown [seconds] *)
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.002;   (* Safety task cycle [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Control Outputs ─── *)
+    bTripRequest         : BOOL;            (* EPO trip request *)
+    bSuppressRelease     : BOOL;            (* Discharge valve solenoid (relay) *)
+    bEvacAlarm           : BOOL;            (* Evacuation alarm (horn + strobe) *)
+    bDamperClose         : BOOL;            (* HVAC damper close command *)
+    
+    (* ─── Status ─── *)
+    eState               : E_FireSuppressionState;  (* Current state machine state *)
+    fCountdownRemaining  : REAL;            (* Seconds remaining in countdown *)
+    nSpotDetectorCount   : USINT;           (* Number of active spot detectors *)
+    nMaxVESDA_Level      : USINT;           (* Highest VESDA level across zones *)
+END_VAR
+
+VAR
+    (* ─── State Machine ─── *)
+    _eState              : E_FireSuppressionState;
+    
+    (* ─── Countdown Timer ─── *)
+    _fCountdownElapsed   : REAL;
+    
+    (* ─── Edge Triggers ─── *)
+    _rtrigAbort          : R_TRIG;          (* Rising edge: abort button pressed *)
+    
+    (* ─── Safety Interface ─── *)
+    _bSafetyPermit       : BOOL := TRUE;
+    _eSafetyState        : E_SafetyState := E_SafetyState.SAFE;
+    _bHasActiveAlarm     : BOOL;
+    
+    (* ─── Loop Variable ─── *)
+    _i                   : USINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Fire suppression lifecycle managed by base class.
+   M_Execute runs the state machine when in RUNNING state.
+   M_SafeState ensures no spurious discharge on fault/disable. *)
+
+SUPER^();

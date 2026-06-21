@@ -1,0 +1,49 @@
+(* =============================================================================
+    FB_Publisher_OPCUA — OPC UA Symbol Server Publisher
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataPublisher using CODESYS built-in OPC UA server.
+     Exposes data points as OPC UA nodes in a hierarchical namespace.
+   
+   HOW IT WORKS:
+     CODESYS OPC UA server automatically exposes variables marked with
+     {attribute 'symbol' := 'readwrite'}. This FB maintains a GVL of
+     publishable variables that the OPC UA server reads directly.
+   
+     For dynamic publishing (data points registered at runtime), this FB
+     writes values to a pre-allocated array in GVL_OPCUA_Publish which
+     is exposed to OPC UA via symbol configuration.
+   
+   CONFIGURATION:
+     The CODESYS OPC UA Server device must be added to the project with:
+       • Symbol configuration including GVL_OPCUA_Publish
+       • Security: Sign & Encrypt with X.509 certificates
+       • Endpoint: opc.tcp://{ip}:4840
+   
+   ALTERNATIVE APPROACH:
+     For fully dynamic node creation, use CmpOPCUAServer library with
+     IecVarAccess. This FB uses the simpler GVL-based approach.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Publisher_OPCUA IMPLEMENTS I_DataPublisher
+VAR
+    _bConnected          : BOOL;
+    _nPublishCount       : UDINT;
+    _nErrorCount         : UDINT;
+    _bBatchMode          : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* OPC UA server is always running as part of CODESYS runtime.
+   No cyclic processing needed — values are read directly from GVL by server. *)

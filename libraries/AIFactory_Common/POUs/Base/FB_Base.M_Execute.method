@@ -1,0 +1,38 @@
+(* =============================================================================
+    FB_Base.M_Execute — Virtual: Main Cyclic Logic
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every scan when: bEnable=TRUE AND initialized AND no fault latched.
+   
+   OVERRIDE IN DERIVED FB TO:
+     • Execute control algorithms (PID, state machines, etc.)
+     • Process sensor inputs
+     • Generate control outputs
+     • Evaluate alarm conditions
+   
+   SAFETY NOTE:
+     This method is ONLY called in RUNNING state. If you detect a condition
+     requiring immediate safe-state, call THIS^.M_SetFault('reason').
+     The base class will enforce safe-state on the NEXT scan.
+   
+   RETURN:
+     TRUE = execution completed normally
+     FALSE = non-fatal issue (logged but no fault latch)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base implementation: no-op. Derived classes override. *)
+M_Execute := TRUE;

@@ -1,0 +1,94 @@
+# =============================================================================
+# Bridge Configuration — IPC-03 Environment
+# Defines which OPC UA nodes to publish and which commands to accept
+# =============================================================================
+
+# OPC UA nodes to READ and publish to NATS as telemetry
+publish_nodes:
+  # Zone temperatures
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Zone01_Temp"
+    tag: "Zone01.Temp"
+    deadband: 0.3
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Zone01_Humidity"
+    tag: "Zone01.Humidity"
+    deadband: 1.0
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Zone01_DewPoint"
+    tag: "Zone01.DewPoint"
+    deadband: 0.5
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Zone02_Temp"
+    tag: "Zone02.Temp"
+    deadband: 0.3
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Zone02_Humidity"
+    tag: "Zone02.Humidity"
+    deadband: 1.0
+    max_interval_ms: 60000
+
+  # Ambient conditions
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Ambient_Temp"
+    tag: "Ambient.Temp"
+    deadband: 0.5
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Ambient_Pressure"
+    tag: "Ambient.Pressure"
+    deadband: 0.5
+    max_interval_ms: 120000
+
+  # Air handling
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_AHU_01_SupplyTemp"
+    tag: "AHU_01.SupplyTemp"
+    deadband: 0.3
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_AHU_01_FanSpeed"
+    tag: "AHU_01.FanSpeed"
+    deadband: 2.0
+    max_interval_ms: 30000
+
+  # Alarms
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Alm_TempHigh"
+    tag: "Alm_TempHigh"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Env_Alm_HumidityHigh"
+    tag: "Alm_HumidityHigh"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+# OPC UA nodes that can be WRITTEN from NATS commands
+command_nodes:
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Env_Zone01_TempSP"
+    tag: "Zone01.TempSP"
+    type: float
+    min: 18.0
+    max: 30.0
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Env_Zone01_HumiditySP"
+    tag: "Zone01.HumiditySP"
+    type: float
+    min: 20.0
+    max: 80.0
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Env_AHU_01_Enable"
+    tag: "AHU_01.Enable"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Env_Reset"
+    tag: "System.Reset"
+    type: bool
+
+# Subjects to subscribe for peer-to-peer data
+subscribe_subjects:
+  - "aifactory.us-west-01.safety.peer"
+  - "aifactory.us-west-01.cooling.peer"

@@ -1,0 +1,34 @@
+# =============================================================================
+# IPC-04 Safety Systems — Project Manifest
+# =============================================================================
+
+name: IPC-04_SafetySystems
+title: "AI Factory IPC-04 — Safety Systems (SIL 2)"
+version: 1.0.0.0
+target:
+  hardware: "Beckhoff CX5240 + TwinSAFE EL6900"
+  os: "Debian Linux (PREEMPT_RT)"
+  runtime: "CODESYS V3.5 SP20 + CODESYS Safety"
+  safety_level: "SIL 2 (IEC 61508)"
+
+library_references:
+  - name: AIFactory_Common
+    version: "1.0.0.0"
+  - name: AIFactory_Communication
+    version: "1.0.0.0"
+  - name: AIFactory_Safety
+    version: "1.0.0.0"
+
+tasks:
+  - name: Safety_Task
+    priority: 0
+    cycle_ms: 2
+    programs: [PRG_Safety_Main]
+  - name: Communication_Task
+    priority: 5
+    cycle_ms: 100
+    programs: [PRG_Communication]
+
+project_files:
+  programs:
+    - POUs/PRG_Safety_Main.pou

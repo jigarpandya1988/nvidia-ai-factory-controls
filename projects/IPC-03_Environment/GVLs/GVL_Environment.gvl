@@ -1,0 +1,19 @@
+(* =============================================================================
+    GVL_Environment — Environment Monitor Cross-Task Exchange
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* Zone status snapshots — written by Monitor_Task, read by Comm_Task *)
+    stZone_01_Status     : ST_ZoneStatus;
+    stZone_02_Status     : ST_ZoneStatus;
+    stZone_03_Status     : ST_ZoneStatus;
+    stZone_04_Status     : ST_ZoneStatus;
+    
+    (* Facility-wide *)
+    fAvgTemperature      : REAL;    (* Facility average [°C] *)
+    fAvgHumidity         : REAL;    (* Facility average [%RH] *)
+    bAnyZoneAlarm        : BOOL;    (* TRUE if any zone in ALARM state *)
+    bCondensationRisk    : BOOL;    (* TRUE if any zone close to dew point *)
+END_VAR

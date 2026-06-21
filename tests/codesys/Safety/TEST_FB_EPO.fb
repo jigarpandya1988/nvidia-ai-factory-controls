@@ -1,0 +1,10 @@
+(* =============================================================================
+    TEST_FB_EPO — Unit Tests for Emergency Power Off Controller
+    Test Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+FUNCTION_BLOCK TEST_FB_EPO EXTENDS FB_TestSuite
+VAR
+    _fbEPO               : FB_EPO_Controller;
+    _i                   : INT;
+END_VAR

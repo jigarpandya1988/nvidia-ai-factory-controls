@@ -1,0 +1,121 @@
+(* =============================================================================
+    FB_Subscriber_BACnet — BACnet/IP Client Subscriber
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataSubscriber by reading BACnet objects from external
+     BMS/HVAC controllers. Used to collect:
+       • Ambient temperature from building sensors
+       • Outdoor wet-bulb temperature (for economizer decisions)
+       • HVAC status (AHU running, damper positions)
+       • Chilled water supply temperature from central plant
+       • Building fire alarm status (BACnet notification class)
+   
+   POLLING MODEL:
+     Similar to Modbus subscriber: maintains a poll table of
+     BACnet ReadProperty requests. Cycles through in round-robin.
+   
+   BACnet SERVICES USED:
+     • ReadProperty (single object read)
+     • ReadPropertyMultiple (batch read — more efficient)
+     • SubscribeCOV (Change-of-Value subscription — event-driven)
+   
+   COV (Change-of-Value):
+     For critical values (fire alarm, ambient temp), use COV subscription
+     instead of polling. BACnet server pushes changes immediately.
+     Reduces latency from poll-interval to near-real-time.
+   
+   REQUIRES:
+     CODESYS BACnet/IP Client device in project tree.
+     Or: BACnet client library.
+   
+   THREAD SAFETY:
+     Runs in Communication_Task. BACnet I/O is handled by CODESYS
+     BACnet stack asynchronously; this FB reads the results.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Subscriber_BACnet IMPLEMENTS I_DataSubscriber
+VAR_INPUT
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.1;
+    nMaxPollsPerCycle    : USINT := 4;
+    nStaleTimeout_ms     : UDINT := 10000;
+    
+    (* --- COV Configuration --- *)
+    bUseCOV              : BOOL := TRUE;    (* Prefer COV over polling *)
+    nCOV_Lifetime_s      : UDINT := 300;    (* COV subscription lifetime *)
+END_VAR
+
+VAR
+    _bConnected          : BOOL;
+    _nSubscriptionCount  : UDINT;
+    _nStaleCount         : UDINT;
+    
+    (* --- Poll Request Table --- *)
+    _astPollRequests     : ARRAY[1..32] OF ST_BACnetPollRequest;
+    _nPollCount          : USINT;
+    _nCurrentPoll        : USINT;
+    
+    (* --- COV Subscriptions --- *)
+    _astCOV_Subs         : ARRAY[1..16] OF ST_BACnetCOVSub;
+    _nCOV_Count          : USINT;
+    
+    (* --- Received Data --- *)
+    _astReceivedData     : ARRAY[1..64] OF ST_Subscription;
+    _nReceivedCount      : UINT;
+    
+    (* --- Discovered Values (commonly needed) --- *)
+    fAmbientTemp         : REAL;            (* Outdoor ambient temperature [°C] *)
+    fWetBulbTemp         : REAL;            (* Wet-bulb temperature [°C] *)
+    fCHW_SupplyTemp      : REAL;            (* Chilled water supply [°C] *)
+    bBuildingFireAlarm   : BOOL;            (* Building fire alarm active *)
+    bAHU_Running         : ARRAY[1..4] OF BOOL;  (* Air handling unit status *)
+    
+    (* --- Statistics --- *)
+    _nTotalReads         : UDINT;
+    _nSuccessfulReads    : UDINT;
+    _nCOV_Notifications  : UDINT;           (* COV events received *)
+    
+    (* --- Edge Triggers --- *)
+    _rtrigFireAlarm      : R_TRIG;          (* Building fire alarm activated *)
+    _ftrigFireAlarm      : F_TRIG;          (* Building fire alarm cleared *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* --- Fire Alarm Edge Detection --- *)
+_rtrigFireAlarm(CLK := bBuildingFireAlarm);
+_ftrigFireAlarm(CLK := bBuildingFireAlarm);
+
+(* --- Round-Robin Polling (same pattern as Modbus subscriber) --- *)
+(* In production with CODESYS BACnet library:
+   FOR i := 1 TO nMaxPollsPerCycle DO
+       _nCurrentPoll := _nCurrentPoll + 1;
+       IF _nCurrentPoll > _nPollCount THEN _nCurrentPoll := 1; END_IF
+       
+       // Execute BACnet ReadProperty
+       // Object: _astPollRequests[_nCurrentPoll].nObjectType
+       // Instance: _astPollRequests[_nCurrentPoll].nObjectInstance
+       // Property: Present_Value (85)
+       
+       // On success: store value, update timestamp
+       // On error: increment error count
+   END_FOR *)
+
+(* --- COV Subscription Renewal --- *)
+(* BACnet COV subscriptions expire. Renew before lifetime expires.
+   In production: check each _astCOV_Subs lifetime remaining,
+   re-subscribe if < 60 seconds remaining. *)
+
+(* --- Stale Detection --- *)
+_nStaleCount := 0;
+(* Check all subscriptions for staleness *)

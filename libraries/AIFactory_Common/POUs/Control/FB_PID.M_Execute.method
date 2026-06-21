@@ -1,0 +1,180 @@
+(* =============================================================================
+    FB_PID.M_Execute — PID Algorithm (ISA Standard Form)
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   ALGORITHM:
+     Output = Kp * [ (b*SP - PV) + (1/Ti)*∫e·dt + Td*d(-PV)/dt ]
+   
+   Where:
+     e = SP - PV (error)
+     b = setpoint weight (fSPWeight)
+     Derivative is on -PV (not error) to avoid setpoint kick
+     Derivative is filtered: Td/(Td + Td/N * s)
+   
+   ANTI-WINDUP:
+     Conditional integration: integrator frozen when output is saturated
+     AND error would drive it further into saturation.
+   
+   BUMPLESS TRANSFER:
+     In manual mode, integrator tracks so that switching to auto
+     produces no output discontinuity.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    fError_Local         : REAL;    (* Local error for this scan *)
+    fPropInput           : REAL;    (* P-term input with SP weighting *)
+    fDerivInput          : REAL;    (* Derivative input (on PV) *)
+    fDerivFiltered       : REAL;    (* Filtered derivative *)
+    fOutputRaw           : REAL;    (* Output before limiting *)
+    fOutputLimited       : REAL;    (* Output after limiting *)
+    fN                   : REAL;    (* Derivative filter coefficient *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── INPUT VALIDATION ───────────────────────────────────────────────────── *)
+(* Guard against invalid cycle time — would cause division by zero *)
+IF fCycleTime_s <= 0.0 THEN
+    THIS^.M_SetFault('PID: Invalid cycle time (<=0)');
+    M_Execute := FALSE;
+    RETURN;
+END_IF
+
+(* Guard against invalid output limits *)
+IF fOutputMin >= fOutputMax THEN
+    THIS^.M_SetFault('PID: OutputMin >= OutputMax');
+    M_Execute := FALSE;
+    RETURN;
+END_IF
+
+
+(* ─── MANUAL MODE (bumpless transfer) ───────────────────────────────────── *)
+IF bManualMode THEN
+    fOutput := LIMIT(fOutputMin, fManualOutput, fOutputMax);
+    bIsManual := TRUE;
+    
+    (* Track integrator to current output for bumpless transfer to auto.
+       When switching to auto, integrator already holds the right value
+       so output doesn't jump. *)
+    fPropInput := fKp * (fSetpoint * fSPWeight - fProcessValue);
+    _fIntegral := fOutput - fPropInput - _fDerivState;
+    
+    (* Update previous values *)
+    _fOutputPrev := fOutput;
+    _fPV_Prev := fProcessValue;
+    
+    (* Update diagnostic outputs *)
+    fError := fSetpoint - fProcessValue;
+    fP_Term := fPropInput;
+    fI_Term := _fIntegral;
+    fD_Term := _fDerivState;
+    bAtUpperLimit := (fOutput >= fOutputMax);
+    bAtLowerLimit := (fOutput <= fOutputMin);
+    
+    M_Execute := TRUE;
+    RETURN;
+END_IF
+
+bIsManual := FALSE;
+
+
+(* ─── ERROR CALCULATION ──────────────────────────────────────────────────── *)
+fError_Local := fSetpoint - fProcessValue;
+
+(* Apply deadband: suppress small errors to prevent hunting *)
+IF ABS(fError_Local) < fDeadband THEN
+    fError_Local := 0.0;
+END_IF
+fError := fError_Local;
+
+
+(* ─── PROPORTIONAL TERM ─────────────────────────────────────────────────── *)
+(* Setpoint weighting: P acts on (b*SP - PV), not on full error.
+   This reduces overshoot on setpoint changes while maintaining
+   full disturbance rejection. *)
+fPropInput := fKp * (fSetpoint * fSPWeight - fProcessValue);
+fP_Term := fPropInput;
+
+
+(* ─── INTEGRAL TERM (with anti-windup) ───────────────────────────────────── *)
+IF fTi > 0.0 THEN
+    (* Conditional integration: do NOT integrate if:
+       - Output is at upper limit AND error is positive (would wind up more)
+       - Output is at lower limit AND error is negative (would wind down more)
+       This prevents integrator from accumulating when output can't move. *)
+    IF NOT (_bWindupHigh AND fError_Local > 0.0) AND
+       NOT (_bWindupLow AND fError_Local < 0.0) THEN
+        _fIntegral := _fIntegral + (fKp / fTi) * fError_Local * fCycleTime_s;
+    END_IF
+    fI_Term := _fIntegral;
+ELSE
+    (* Integral disabled *)
+    fI_Term := 0.0;
+    _fIntegral := 0.0;
+END_IF
+
+
+(* ─── DERIVATIVE TERM (filtered, on PV) ─────────────────────────────────── *)
+IF fTd > 0.0 AND fCycleTime_s > 0.0 THEN
+    (* Derivative filter coefficient: N limits derivative gain at high freq.
+       Typical N = 8..20. Clamp to safe range. *)
+    fN := LIMIT(2.0, fDerivFilterN, 50.0);
+    
+    (* Filtered derivative on process value (not error — avoids SP kick):
+       D(s) = -Kp * Td * N * s / (1 + Td/N * s)
+       Discretized (backward Euler): *)
+    fDerivInput := -(fProcessValue - _fPV_Prev) / fCycleTime_s;
+    _fDerivState := (_fDerivState * fTd + fKp * fTd * fDerivInput * fCycleTime_s)
+                    / (fTd + fCycleTime_s * fN);
+    
+    fD_Term := _fDerivState;
+ELSE
+    fD_Term := 0.0;
+    _fDerivState := 0.0;
+END_IF
+
+
+(* ─── SUM TERMS ─────────────────────────────────────────────────────────── *)
+fOutputRaw := fP_Term + fI_Term + fD_Term;
+
+
+(* ─── DETECT WINDUP (before clamping) ────────────────────────────────────── *)
+_bWindupHigh := (fOutputRaw > fOutputMax);
+_bWindupLow := (fOutputRaw < fOutputMin);
+
+
+(* ─── OUTPUT LIMITING ────────────────────────────────────────────────────── *)
+fOutputLimited := LIMIT(fOutputMin, fOutputRaw, fOutputMax);
+bAtUpperLimit := (fOutputLimited >= fOutputMax);
+bAtLowerLimit := (fOutputLimited <= fOutputMin);
+
+
+(* ─── RATE LIMITING ──────────────────────────────────────────────────────── *)
+IF fRateLimit > 0.0 THEN
+    IF (fOutputLimited - _fOutputPrev) > (fRateLimit * fCycleTime_s) THEN
+        fOutputLimited := _fOutputPrev + (fRateLimit * fCycleTime_s);
+    ELSIF (fOutputLimited - _fOutputPrev) < -(fRateLimit * fCycleTime_s) THEN
+        fOutputLimited := _fOutputPrev - (fRateLimit * fCycleTime_s);
+    END_IF
+END_IF
+
+
+(* ─── FINAL OUTPUT ───────────────────────────────────────────────────────── *)
+fOutput := fOutputLimited;
+
+
+(* ─── STORE PREVIOUS VALUES ──────────────────────────────────────────────── *)
+_fOutputPrev := fOutput;
+_fPV_Prev := fProcessValue;
+
+M_Execute := TRUE;

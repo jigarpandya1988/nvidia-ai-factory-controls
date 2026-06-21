@@ -1,0 +1,305 @@
+(* =============================================================================
+    PRG_Communication — Communication Task Main Program
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Orchestrates all data collection and publishing for IPC-02.
+     This is the ONLY program that bridges the control world (GVL_CrossTask)
+     with the external world (OPC UA, MQTT, Modbus).
+   
+   TASK ASSIGNMENT:
+     Communication_Task — Priority 5, Cycle 100ms
+   
+   EXECUTION ORDER:
+     1. Read status from GVL_CrossTask (atomic struct copy from Control_Task)
+     2. Copy status to GVL_OPCUA_Publish (OPC UA server reads from here)
+     3. Read commands from GVL_OPCUA_Publish (OPC UA clients wrote here)
+     4. Copy commands to GVL_CrossTask (Control_Task reads from here)
+     5. Update FB_DataCollector with fresh values
+     6. Run FB_DataCollector (evaluates publish conditions, dispatches)
+     7. Read subscriber data (GPU telemetry, cloud commands)
+     8. Write subscriber data to GVL_CrossTask
+   
+   RACE CONDITION PREVENTION:
+     • All GVL_CrossTask reads happen at TOP of cycle (steps 1-2)
+     • All GVL_CrossTask writes happen at BOTTOM of cycle (steps 7-8)
+     • Within one cycle, only local copies are used
+     • This ensures Control_Task always sees a consistent snapshot
+   
+   MULTI-PROTOCOL CONFIGURATION:
+     Publishers and subscribers are registered in the initialization
+     section. Comment/uncomment to enable/disable protocols:
+       • OPC UA: Always enabled (built into CODESYS)
+       • MQTT: Enable for cloud connectivity
+       • Modbus: Enable for legacy SCADA integration
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_Communication
+VAR
+    (* --- Data Collection Engine --- *)
+    fbDataCollector      : FB_DataCollector;
+    
+    (* --- Publishers (uncomment to enable) --- *)
+    fbPub_OPCUA          : FB_Publisher_OPCUA;     (* Always enabled *)
+    fbPub_MQTT           : FB_Publisher_MQTT;      (* Enable for cloud *)
+    fbPub_Modbus         : FB_Publisher_Modbus;    (* Enable for SCADA *)
+    
+    (* --- Subscribers --- *)
+    fbSub_GPU            : FB_Subscriber_OPCUA;    (* GPU telemetry from edge *)
+    (* fbSub_MQTT_Cmd    : FB_Subscriber_MQTT;     -- Cloud commands *)
+    
+    (* --- Local Copies (prevent mid-cycle GVL changes) --- *)
+    _stCDU_01_Local      : ST_CDU_Status;
+    _stCDU_02_Local      : ST_CDU_Status;
+    
+    (* --- Data Point Indices (from M_RegisterPoint) --- *)
+    _nIdx_CDU01_SupplyTemp   : UINT;
+    _nIdx_CDU01_ReturnTemp   : UINT;
+    _nIdx_CDU01_DeltaT       : UINT;
+    _nIdx_CDU01_FlowRate     : UINT;
+    _nIdx_CDU01_PumpSpeed    : UINT;
+    _nIdx_CDU01_ValvePos     : UINT;
+    _nIdx_CDU01_Capacity     : UINT;
+    _nIdx_CDU02_SupplyTemp   : UINT;
+    _nIdx_CDU02_ReturnTemp   : UINT;
+    _nIdx_GPU_MaxTemp        : UINT;
+    _nIdx_GPU_TotalPower     : UINT;
+    _nIdx_Safety_Permit      : UINT;
+    
+    (* --- Initialization --- *)
+    _bInitialized        : BOOL;
+    
+    (* --- Timing --- *)
+    _nSystemTime_ms      : UDINT;   (* Monotonic millisecond counter *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Update system time *)
+_nSystemTime_ms := _nSystemTime_ms + 100;   (* 100ms cycle *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   ONE-TIME INITIALIZATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF NOT _bInitialized THEN
+    
+    (* ─── Register Publishers ─────────────────────────────────────────── *)
+    fbDataCollector.M_AddPublisher(refPublisher := fbPub_OPCUA);
+    fbDataCollector.M_AddPublisher(refPublisher := fbPub_MQTT);
+    fbDataCollector.M_AddPublisher(refPublisher := fbPub_Modbus);
+    
+    (* ─── Register Subscribers ────────────────────────────────────────── *)
+    fbSub_GPU.sServerURL := 'opc.tcp://192.168.100.100:4840';
+    fbSub_GPU.sServerName := 'EdgeGateway_GPU';
+    fbDataCollector.M_AddSubscriber(refSubscriber := fbSub_GPU);
+    
+    (* ─── Register Data Points ────────────────────────────────────────── *)
+    (* CDU 01 — On-change with 30s heartbeat *)
+    _nIdx_CDU01_SupplyTemp := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/SupplyTemp',
+        sDescription := 'CDU 01 Supply Temperature',
+        sUnit := '°C',
+        eMode := E_PublishMode.HYBRID,
+        fDeadband := 0.3,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 30000
+    );
+    
+    _nIdx_CDU01_ReturnTemp := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/ReturnTemp',
+        sDescription := 'CDU 01 Return Temperature',
+        sUnit := '°C',
+        eMode := E_PublishMode.HYBRID,
+        fDeadband := 0.3,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 30000
+    );
+    
+    _nIdx_CDU01_DeltaT := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/DeltaT',
+        sDescription := 'CDU 01 Temperature Differential',
+        sUnit := '°C',
+        eMode := E_PublishMode.ON_CHANGE,
+        fDeadband := 0.5,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 60000
+    );
+    
+    _nIdx_CDU01_FlowRate := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/FlowRate',
+        sDescription := 'CDU 01 Coolant Flow Rate',
+        sUnit := 'LPM',
+        eMode := E_PublishMode.HYBRID,
+        fDeadband := 5.0,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 30000
+    );
+    
+    _nIdx_CDU01_PumpSpeed := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/PumpSpeed',
+        sDescription := 'CDU 01 Pump Speed Command',
+        sUnit := '%',
+        eMode := E_PublishMode.ON_CHANGE,
+        fDeadband := 1.0,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 30000
+    );
+    
+    _nIdx_CDU01_ValvePos := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/ValvePosition',
+        sDescription := 'CDU 01 3-Way Valve Position',
+        sUnit := '%',
+        eMode := E_PublishMode.ON_CHANGE,
+        fDeadband := 2.0,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 30000
+    );
+    
+    _nIdx_CDU01_Capacity := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'Cooling/CDU_01/CoolingCapacity',
+        sDescription := 'CDU 01 Calculated Cooling Power',
+        sUnit := 'kW',
+        eMode := E_PublishMode.CYCLIC,
+        fDeadband := 0.0,
+        nCyclicInterval_ms := 5000,
+        nHeartbeatInterval_ms := 0
+    );
+    
+    (* GPU telemetry — cyclic 1 second *)
+    _nIdx_GPU_MaxTemp := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'GPU/MaxJunctionTemp',
+        sDescription := 'Highest GPU Temperature',
+        sUnit := '°C',
+        eMode := E_PublishMode.CYCLIC,
+        fDeadband := 0.0,
+        nCyclicInterval_ms := 1000,
+        nHeartbeatInterval_ms := 0
+    );
+    
+    _nIdx_GPU_TotalPower := fbDataCollector.M_RegisterPoint(
+        sNodePath := 'GPU/TotalPower',
+        sDescription := 'Total GPU Power Consumption',
+        sUnit := 'kW',
+        eMode := E_PublishMode.HYBRID,
+        fDeadband := 10.0,
+        nCyclicInterval_ms := 0,
+        nHeartbeatInterval_ms := 5000
+    );
+    
+    (* ─── Configure MQTT Publisher ────────────────────────────────────── *)
+    fbPub_MQTT.sBrokerURL := 'tcp://192.168.200.10:1883';
+    fbPub_MQTT.sClientID := 'IPC-02-Cooling';
+    fbPub_MQTT.sTopicPrefix := 'aifactory/us-west-01/cooling';
+    fbPub_MQTT.nQoS := 1;
+    
+    (* ─── Connect Publishers ──────────────────────────────────────────── *)
+    fbPub_OPCUA.M_Connect();
+    fbPub_MQTT.M_Connect();
+    fbPub_Modbus.M_Connect();
+    fbSub_GPU.M_Connect();
+    
+    (* ─── Enable Data Collector ───────────────────────────────────────── *)
+    fbDataCollector.bEnable := TRUE;
+    fbDataCollector.fCycleTime_s := 0.1;
+    
+    _bInitialized := TRUE;
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 1: READ STATUS FROM CONTROL TASK (atomic struct copy)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_stCDU_01_Local := GVL_CrossTask.stCDU_01_Status;
+_stCDU_02_Local := GVL_CrossTask.stCDU_02_Status;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 2: COPY STATUS TO OPC UA PUBLISH GVL
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* CDU 01 *)
+GVL_OPCUA_Publish.Cooling_CDU_01_State := USINT_TO_USINT(_stCDU_01_Local.eState);
+GVL_OPCUA_Publish.Cooling_CDU_01_Mode := USINT_TO_USINT(_stCDU_01_Local.eMode);
+GVL_OPCUA_Publish.Cooling_CDU_01_Healthy := _stCDU_01_Local.bHealthy;
+GVL_OPCUA_Publish.Cooling_CDU_01_SupplyTemp := _stCDU_01_Local.fSupplyTemp;
+GVL_OPCUA_Publish.Cooling_CDU_01_ReturnTemp := _stCDU_01_Local.fReturnTemp;
+GVL_OPCUA_Publish.Cooling_CDU_01_DeltaT := _stCDU_01_Local.fDeltaT;
+GVL_OPCUA_Publish.Cooling_CDU_01_FlowRate := _stCDU_01_Local.fFlowRate_LPM;
+GVL_OPCUA_Publish.Cooling_CDU_01_Pressure := _stCDU_01_Local.fDiffPressure_bar;
+GVL_OPCUA_Publish.Cooling_CDU_01_PumpSpeed := _stCDU_01_Local.fPumpSpeedCmd;
+GVL_OPCUA_Publish.Cooling_CDU_01_ValvePos := _stCDU_01_Local.fValvePositionCmd;
+GVL_OPCUA_Publish.Cooling_CDU_01_Capacity_kW := _stCDU_01_Local.fCoolingCapacity_kW;
+GVL_OPCUA_Publish.Cooling_CDU_01_PumpRunning := _stCDU_01_Local.bPumpRunning;
+GVL_OPCUA_Publish.Cooling_CDU_01_AtCapacity := _stCDU_01_Local.bAtCapacity;
+GVL_OPCUA_Publish.Cooling_CDU_01_RunHours := _stCDU_01_Local.nRunHours;
+GVL_OPCUA_Publish.Cooling_CDU_01_StartCount := _stCDU_01_Local.nStartCount;
+
+(* CDU 01 Alarms *)
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_TempHigh := _stCDU_01_Local.bAlm_SupplyTempHigh;
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_FlowLow := _stCDU_01_Local.bAlm_FlowLow;
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_Leak := _stCDU_01_Local.bAlm_LeakDetected;
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_PumpFault := _stCDU_01_Local.bAlm_PumpFault;
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_Pressure := _stCDU_01_Local.bAlm_PressureHigh;
+GVL_OPCUA_Publish.Cooling_CDU_01_Alm_GPUWarn := _stCDU_01_Local.bAlm_GPUTempWarn;
+
+(* Safety *)
+GVL_OPCUA_Publish.Safety_Permit := GVL_CrossTask.bSafetyPermit_Global;
+
+(* System diagnostics *)
+GVL_OPCUA_Publish.System_Heartbeat_Comm := fbDataCollector.nHeartbeat;
+GVL_OPCUA_Publish.System_ActivePublishers := fbDataCollector.nActivePublishers;
+GVL_OPCUA_Publish.System_PublishErrors := fbDataCollector.nPublishErrors;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 3: READ COMMANDS FROM OPC UA (external writes)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Copy operator commands to the config struct that Control_Task will read *)
+GVL_CrossTask.stCDU_01_Config.fSupplyTempSP := GVL_OPCUA_Publish.Cmd_CDU_01_SupplyTempSP;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 4: UPDATE DATA COLLECTOR WITH FRESH VALUES
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_SupplyTemp,
+    fValue := _stCDU_01_Local.fSupplyTemp, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_ReturnTemp,
+    fValue := _stCDU_01_Local.fReturnTemp, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_DeltaT,
+    fValue := _stCDU_01_Local.fDeltaT, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_FlowRate,
+    fValue := _stCDU_01_Local.fFlowRate_LPM, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_PumpSpeed,
+    fValue := _stCDU_01_Local.fPumpSpeedCmd, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_ValvePos,
+    fValue := _stCDU_01_Local.fValvePositionCmd, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_CDU01_Capacity,
+    fValue := _stCDU_01_Local.fCoolingCapacity_kW, nQuality := 0);
+
+(* GPU data from subscriber *)
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_GPU_MaxTemp,
+    fValue := GVL_CrossTask.fGPU_Row1_MaxTemp, nQuality := 0);
+fbDataCollector.M_UpdateValue(nIndex := _nIdx_GPU_TotalPower,
+    fValue := GVL_CrossTask.fGPU_Row1_TotalPower, nQuality := 0);
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 5: RUN DATA COLLECTOR (evaluate + publish)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+fbDataCollector.nSystemTime_ms := _nSystemTime_ms;
+fbDataCollector();

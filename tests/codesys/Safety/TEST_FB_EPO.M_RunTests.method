@@ -1,0 +1,161 @@
+(* =============================================================================
+    TEST_FB_EPO.M_RunTests — EPO Controller Test Cases
+   ============================================================================= *)
+
+METHOD M_RunTests : BOOL
+
+sSuiteName := 'TEST_FB_EPO';
+
+
+(* ─── Test 1: Normal State — All Relays Energized ────────────────────────── *)
+THIS^.TEST('NormalState_RelaysEnergized');
+
+_fbEPO.bEnable := TRUE;
+_fbEPO.bReset := TRUE;
+_fbEPO();
+_fbEPO.bReset := FALSE;
+_fbEPO.bEPO_Ch1 := [FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE];
+_fbEPO.bEPO_Ch2 := [FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE];
+_fbEPO.bTrip_Fire := FALSE;
+_fbEPO.bTrip_LeakMajor := FALSE;
+_fbEPO.bTrip_Seismic := FALSE;
+_fbEPO.bTrip_ThermalRunaway := FALSE;
+_fbEPO.fCycleTime_s := 0.002;
+_fbEPO();
+
+THIS^.AssertTrue(_fbEPO.bRelay[1], 'Zone 1 relay should be energized (power ON)');
+THIS^.AssertTrue(_fbEPO.bRelay[2], 'Zone 2 relay should be energized');
+THIS^.AssertFalse(_fbEPO.bAnyZoneTripped, 'No zones should be tripped');
+THIS^.AssertTrue(_fbEPO.bSystemArmed, 'System should be armed');
+
+
+(* ─── Test 2: Manual EPO Button — Zone Trips ─────────────────────────────── *)
+THIS^.TEST('ManualEPO_ZoneTrips');
+
+(* Press button 1 (both channels) *)
+_fbEPO.bEPO_Ch1[1] := TRUE;
+_fbEPO.bEPO_Ch2[1] := TRUE;
+_fbEPO.anButtonToZone := [1,2,3,4,5,6,7,8];
+_fbEPO();
+
+THIS^.AssertFalse(_fbEPO.bRelay[1], 'Tripped zone relay should be de-energized (power OFF)');
+THIS^.AssertTrue(_fbEPO.bRelay[2], 'Other zones should remain energized');
+THIS^.AssertTrue(_fbEPO.bAnyZoneTripped, 'Should report zone tripped');
+THIS^.AssertEquals_INT(1, USINT_TO_DINT(_fbEPO.nTrippedZoneCount), 'One zone should be tripped');
+
+
+(* ─── Test 3: Trip Latches (persists after button release) ───────────────── *)
+THIS^.TEST('TripLatches_PersistsAfterRelease');
+
+(* Release button *)
+_fbEPO.bEPO_Ch1[1] := FALSE;
+_fbEPO.bEPO_Ch2[1] := FALSE;
+_fbEPO();
+
+(* Trip should PERSIST even though button is released *)
+THIS^.AssertTrue(_fbEPO.bAnyZoneTripped, 'Trip should latch after button release');
+THIS^.AssertFalse(_fbEPO.bRelay[1], 'Relay should remain de-energized (latched)');
+
+
+(* ─── Test 4: Fire Trip — All Zones Trip ─────────────────────────────────── *)
+THIS^.TEST('FireTrip_AllZonesTrip');
+
+(* Reset first *)
+_fbEPO.bReset := TRUE;
+_fbEPO();
+_fbEPO.bReset := FALSE;
+_fbEPO();
+
+(* Fire trip *)
+_fbEPO.bTrip_Fire := TRUE;
+_fbEPO();
+
+THIS^.AssertFalse(_fbEPO.bRelay[1], 'Fire: Zone 1 should trip');
+THIS^.AssertFalse(_fbEPO.bRelay[2], 'Fire: Zone 2 should trip');
+THIS^.AssertFalse(_fbEPO.bRelay[3], 'Fire: Zone 3 should trip');
+THIS^.AssertFalse(_fbEPO.bRelay[4], 'Fire: Zone 4 should trip');
+THIS^.AssertEquals_INT(8, USINT_TO_DINT(_fbEPO.nTrippedZoneCount), 'Fire: all zones trip');
+
+_fbEPO.bTrip_Fire := FALSE;
+
+
+(* ─── Test 5: Reset Requires All Three Inputs + 3 Second Hold ────────────── *)
+THIS^.TEST('Reset_RequiresAllThreeInputs');
+
+(* Try reset with only key — should NOT reset *)
+_fbEPO.bResetKey := TRUE;
+_fbEPO.bResetButton := FALSE;
+_fbEPO.bResetAuthorized := FALSE;
+FOR _i := 1 TO 2000 DO  (* Way more than 3 seconds at 2ms cycle *)
+    _fbEPO();
+END_FOR
+
+THIS^.AssertTrue(_fbEPO.bAnyZoneTripped, 'Key-only should NOT reset');
+
+(* All three inputs together *)
+_fbEPO.bResetKey := TRUE;
+_fbEPO.bResetButton := TRUE;
+_fbEPO.bResetAuthorized := TRUE;
+
+(* Hold for 3 seconds (3000ms / 2ms cycle = 1500 scans) *)
+FOR _i := 1 TO 1600 DO
+    _fbEPO();
+END_FOR
+
+THIS^.AssertFalse(_fbEPO.bAnyZoneTripped, 'Full reset (key+button+auth, 3s) should clear trips');
+THIS^.AssertTrue(_fbEPO.bRelay[1], 'After reset: relays should be energized');
+
+_fbEPO.bResetKey := FALSE;
+_fbEPO.bResetButton := FALSE;
+_fbEPO.bResetAuthorized := FALSE;
+
+
+(* ─── Test 6: Dual-Channel Discrepancy — Fault Detected ──────────────────── *)
+THIS^.TEST('DualChannel_DiscrepancyDetected');
+
+_fbEPO.bReset := TRUE;
+_fbEPO();
+_fbEPO.bReset := FALSE;
+
+(* Only one channel active (wiring fault simulation) *)
+_fbEPO.bEPO_Ch1[3] := TRUE;
+_fbEPO.bEPO_Ch2[3] := FALSE;  (* Channel mismatch! *)
+
+(* Run for 200ms+ (discrepancy timeout) *)
+FOR _i := 1 TO 150 DO  (* 150 * 2ms = 300ms > 200ms timeout *)
+    _fbEPO();
+END_FOR
+
+THIS^.AssertTrue(_fbEPO.bAnyInputFault, 'Dual-channel mismatch should report fault');
+
+_fbEPO.bEPO_Ch1[3] := FALSE;
+
+
+(* ─── Test 7: Pessimistic — Single Channel with Fault Still Trips ────────── *)
+THIS^.TEST('Pessimistic_SingleChannelWithFaultTrips');
+
+(* Button 3 Ch1 active, Ch2 has fault → should STILL trip (fail-safe) *)
+_fbEPO.bEPO_Ch1[3] := TRUE;
+_fbEPO.bEPO_Ch2[3] := FALSE;
+
+(* After discrepancy detected, single channel should be enough to trip *)
+FOR _i := 1 TO 150 DO
+    _fbEPO();
+END_FOR
+
+(* Zone 3 should be tripped (pessimistic: any doubt = trip) *)
+THIS^.AssertTrue(_fbEPO.bAnyZoneTripped, 'Pessimistic: single valid channel should trip');
+
+
+(* ─── Test 8: Safe State on Disable ──────────────────────────────────────── *)
+THIS^.TEST('SafeState_AllRelaysOff');
+
+_fbEPO.bEnable := FALSE;
+_fbEPO();
+
+THIS^.AssertFalse(_fbEPO.bRelay[1], 'Disabled: all relays should be OFF (safe)');
+THIS^.AssertFalse(_fbEPO.bRelay[2], 'Disabled: zone 2 relay OFF');
+THIS^.AssertFalse(_fbEPO.bSystemArmed, 'Disabled: system should NOT be armed');
+
+
+M_RunTests := TRUE;

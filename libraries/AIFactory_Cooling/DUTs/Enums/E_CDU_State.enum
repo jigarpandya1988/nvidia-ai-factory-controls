@@ -1,0 +1,30 @@
+(* =============================================================================
+    E_CDU_State — CDU State Machine States
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   STATE MACHINE:
+     IDLE ──(enable)──→ PRE_CHECK ──(OK)──→ STARTING ──(running)──→ RUNNING
+     RUNNING ──(disable)──→ STOPPING ──(stopped)──→ IDLE
+     RUNNING ──(fault)──→ FAULT ──(reset)──→ IDLE
+     ANY ──(safety trip)──→ EMERGENCY_STOP ──(reset)──→ IDLE
+   
+   SAFETY:
+     EMERGENCY_STOP is entered IMMEDIATELY on safety trip — no ramp-down.
+     All other transitions use controlled ramp rates.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_CDU_State :
+(
+    IDLE            := 0,   (* Stopped; pump off, valve closed *)
+    PRE_CHECK       := 1,   (* Verifying preconditions before start *)
+    STARTING        := 2,   (* Pump ramping up, valve opening *)
+    RUNNING         := 3,   (* Normal PID control active *)
+    STOPPING        := 4,   (* Controlled ramp-down in progress *)
+    FAULT           := 5,   (* Fault detected; outputs safe; needs reset *)
+    EMERGENCY_STOP  := 6,   (* Safety-triggered immediate stop *)
+    MAINTENANCE     := 7    (* Manual control mode for service *)
+);
+END_TYPE

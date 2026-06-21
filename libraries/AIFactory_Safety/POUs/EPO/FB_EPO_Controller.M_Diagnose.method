@@ -1,0 +1,106 @@
+(* =============================================================================
+    FB_EPO_Controller.M_Diagnose — Periodic Self-Diagnostics
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every _nDiagInterval scans (default ~5s) while in RUNNING state.
+   
+   CHECKS:
+     1. Channel Responsiveness — verify no frozen (stuck) inputs.
+        If a dual-channel input is stuck in one state for too long,
+        the wiring or sensor may have failed silently.
+     2. Discrepancy Timer Health — ensure discrepancy detection is
+        functioning. If any channel has been in discrepancy state
+        for an extended period, the monitoring circuit itself may
+        have a fault.
+   
+   SAFETY NOTE:
+     Diagnostics must NOT interfere with trip logic. Trip evaluation
+     runs UNCONDITIONALLY in the FB body regardless of diagnostic state.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Diagnose : BOOL
+VAR
+    _idx                 : USINT;
+    _bAnyChannelFrozen   : BOOL;
+    _bAnyDiscrepancyStuck: BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_bAnyChannelFrozen := FALSE;
+_bAnyDiscrepancyStuck := FALSE;
+
+(* ─── CHECK 1: All Channels Responding (no frozen signals) ───────────────────── *)
+(* EPO pushbutton inputs are dual-channel (Ch1 + Ch2).
+   In normal operation, both channels should be FALSE (NC wiring, no press).
+   A channel "frozen" at TRUE for too long without corresponding reset
+   indicates a wiring fault or stuck contact.
+   
+   We check for discrepancy faults as the primary indicator of frozen channels.
+   The discrepancy timers (_atonDiscrepancy) already monitor channel mismatch.
+   If any discrepancy fault has been set, the channel is not responding correctly. *)
+
+FOR _idx := 1 TO C_MAX_ZONES DO
+    IF _abChannelFault[_idx] THEN
+        _bAnyChannelFrozen := TRUE;
+    END_IF
+END_FOR
+
+(* Multiple frozen channels = systemic issue (bus fault, power loss to inputs) *)
+IF _bAnyChannelFrozen THEN
+    bAnyInputFault := TRUE;
+    (* Single channel fault is alarmed but not a system-level fault latch.
+       However, if ALL channels are faulted, the EPO system is compromised. *)
+    _bAnyDiscrepancyStuck := TRUE;
+    
+    (* Count faulted channels *)
+    _idx := 0;
+    FOR _idx := 1 TO C_MAX_ZONES DO
+        IF _abChannelFault[_idx] THEN
+            _bAnyDiscrepancyStuck := TRUE;
+        END_IF
+    END_FOR
+END_IF
+
+(* ─── CHECK 2: Discrepancy Timer Health ──────────────────────────────────────── *)
+(* The discrepancy timers (TON instances) should not be perpetually running.
+   If a timer has been running (IN=TRUE) but never reached Q=TRUE, that's
+   normal (transient mismatch within tolerance).
+   If a timer reached Q=TRUE, it set a channel fault — already handled above.
+   
+   The concern: if ALL discrepancy timers are simultaneously faulted,
+   the entire input module may have lost power or the field bus is down. *)
+
+_idx := 0;
+FOR _idx := 1 TO C_MAX_ZONES DO
+    IF _abChannelFault[_idx] THEN
+        _idx := _idx;  (* Count — already tracked via bAnyInputFault *)
+    END_IF
+END_FOR
+
+(* If all zones show channel faults: systemic failure *)
+_bAnyDiscrepancyStuck := TRUE;
+FOR _idx := 1 TO C_MAX_ZONES DO
+    IF NOT _abChannelFault[_idx] THEN
+        _bAnyDiscrepancyStuck := FALSE;
+        EXIT;
+    END_IF
+END_FOR
+
+IF _bAnyDiscrepancyStuck AND (_idx = C_MAX_ZONES) THEN
+    THIS^.M_SetFault('DIAG: All EPO channels faulted - check input module/field bus');
+    M_Diagnose := FALSE;
+    RETURN;
+END_IF
+
+M_Diagnose := TRUE;

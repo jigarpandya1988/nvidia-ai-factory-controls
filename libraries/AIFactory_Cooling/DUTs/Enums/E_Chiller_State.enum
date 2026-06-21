@@ -1,0 +1,32 @@
+(* =============================================================================
+    E_Chiller_State — Chiller Unit State Machine
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   STATE MACHINE:
+     OFF ──(start cmd)──→ PRE_LUBE ──(oil pressure OK)──→ STARTING
+     STARTING ──(compressor running)──→ RUNNING ──(unload)──→ UNLOADING
+     RUNNING ──(stop cmd)──→ STOPPING ──(compressor off)──→ POST_LUBE ──→ OFF
+     ANY ──(fault)──→ FAULT ──(reset)──→ OFF
+   
+   NOTES:
+     - Minimum run time enforced (typically 10 min) to prevent short-cycling
+     - Minimum off time enforced (typically 5 min) for compressor protection
+     - Anti-recycle timer prevents rapid start/stop cycles
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_Chiller_State :
+(
+    OFF             := 0,   (* Chiller stopped, all systems idle *)
+    PRE_LUBE        := 1,   (* Oil pump running, building pressure *)
+    STARTING        := 2,   (* Compressor starting, guide vanes opening *)
+    RUNNING         := 3,   (* Normal operation, capacity modulating *)
+    UNLOADING       := 4,   (* Reducing capacity before stop *)
+    STOPPING        := 5,   (* Compressor stopping sequence *)
+    POST_LUBE       := 6,   (* Oil pump running after compressor stop *)
+    FAULT           := 7,   (* Fault condition, requires reset *)
+    LOCKOUT         := 8    (* Multiple faults, manual intervention required *)
+);
+END_TYPE

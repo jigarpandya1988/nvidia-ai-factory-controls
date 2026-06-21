@@ -1,0 +1,242 @@
+# =============================================================================
+# Docker Compose — NATS-Centric Edge Gateway
+# NVIDIA AI Factory Controls
+# =============================================================================
+#
+# Architecture:
+#   ┌─────────────────────────────────────────────────────────────────┐
+#   │                    EDGE SERVER (this compose)                     │
+#   │                                                                  │
+#   │  ┌──────────────────────────────────────────────────────────┐   │
+#   │  │              NATS Server + JetStream                      │   │
+#   │  │         (single broker, all IPCs connect here)            │   │
+#   │  │         Port 4222 (clients) | 7422 (leaf → cloud)        │   │
+#   │  └──────────────────────┬───────────────────────────────────┘   │
+#   │                         │                                        │
+#   │    ┌────────────────────┼────────────────────────┐              │
+#   │    │                    │                        │              │
+#   │  ┌─┴──────────┐  ┌─────┴──────┐  ┌─────────┐  ┌┴──────────┐  │
+#   │  │ Bridge-01  │  │ Bridge-02  │  │Bridge-03│  │ Bridge-04 │  │
+#   │  │ (Power)    │  │ (Cooling)  │  │(Environ)│  │ (Safety)  │  │
+#   │  │ OPC UA→NATS│  │ OPC UA→NATS│  │OPC→NATS │  │ OPC→NATS  │  │
+#   │  └────────────┘  └────────────┘  └─────────┘  └───────────┘  │
+#   │                                                                  │
+#   │  ┌────────────┐  ┌────────────┐  ┌─────────────────────────┐   │
+#   │  │ InfluxDB   │  │  Grafana   │  │  NATS → AWS Forwarder   │   │
+#   │  │ (optional) │  │            │  │  (Timestream, S3)        │   │
+#   │  └────────────┘  └────────────┘  └─────────────────────────┘   │
+#   └─────────────────────────────────────────────────────────────────┘
+#
+# Deploy: docker compose up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # NATS Server — Central Message Broker
+  # ===========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: aifactory-nats
+    restart: unless-stopped
+    command: ["--config", "/etc/nats/nats-server.conf"]
+    ports:
+      - "4222:4222"     # Client connections (OPC UA bridges connect here)
+      - "6222:6222"     # Cluster (if HA pair)
+      - "7422:7422"     # Leaf node (cloud NATS connects here)
+      - "8222:8222"     # Monitoring HTTP (Prometheus metrics)
+    volumes:
+      - ../nats-broker/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats-data:/data/jetstream
+      - ./certs/nats:/etc/nats/certs:ro
+      - ./creds:/etc/nats/creds:ro
+    networks:
+      - edge-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ===========================================================================
+  # JetStream Stream Initialization (runs once after NATS is ready)
+  # ===========================================================================
+  nats-init:
+    image: natsio/nats-box:0.14
+    container_name: aifactory-nats-init
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c", "/scripts/init-streams.sh nats://nats:4222"]
+    environment:
+      - NATS_INIT_USER=cloud-bridge
+      - NATS_INIT_PASS=${NATS_CLOUD_PW:-}
+    volumes:
+      - ../nats-broker/init-streams.sh:/scripts/init-streams.sh:ro
+    networks:
+      - edge-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # OPC UA → NATS Bridge: IPC-01 Power
+  # ===========================================================================
+  bridge-power:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aifactory-bridge-power
+    restart: unless-stopped
+    environment:
+      - IPC_NAME=power
+      - IPC_OPCUA_URL=opc.tcp://192.168.100.10:4840
+      - NATS_URL=nats://nats:4222
+      - NATS_CREDS=/etc/nats/creds/ipc-power.creds
+      - SITE_ID=us-west-01
+      - POLL_INTERVAL_MS=100
+      - PEER_PUBLISH_INTERVAL_MS=5
+    volumes:
+      - ./config/bridge-power.yaml:/app/config.yaml:ro
+      - ./creds:/etc/nats/creds:ro
+    networks:
+      - edge-net
+      - control-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # OPC UA → NATS Bridge: IPC-02 Cooling
+  # ===========================================================================
+  bridge-cooling:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aifactory-bridge-cooling
+    restart: unless-stopped
+    environment:
+      - IPC_NAME=cooling
+      - IPC_OPCUA_URL=opc.tcp://192.168.100.20:4840
+      - NATS_URL=nats://nats:4222
+      - NATS_CREDS=/etc/nats/creds/ipc-cooling.creds
+      - SITE_ID=us-west-01
+      - POLL_INTERVAL_MS=50
+      - PEER_PUBLISH_INTERVAL_MS=5
+    volumes:
+      - ./config/bridge-cooling.yaml:/app/config.yaml:ro
+      - ./creds:/etc/nats/creds:ro
+    networks:
+      - edge-net
+      - control-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # OPC UA → NATS Bridge: IPC-03 Environment
+  # ===========================================================================
+  bridge-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aifactory-bridge-environment
+    restart: unless-stopped
+    environment:
+      - IPC_NAME=environment
+      - IPC_OPCUA_URL=opc.tcp://192.168.100.30:4840
+      - NATS_URL=nats://nats:4222
+      - NATS_CREDS=/etc/nats/creds/ipc-environment.creds
+      - SITE_ID=us-west-01
+      - POLL_INTERVAL_MS=500
+      - PEER_PUBLISH_INTERVAL_MS=50
+    volumes:
+      - ./config/bridge-environment.yaml:/app/config.yaml:ro
+      - ./creds:/etc/nats/creds:ro
+    networks:
+      - edge-net
+      - control-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # OPC UA → NATS Bridge: IPC-04 Safety
+  # ===========================================================================
+  bridge-safety:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aifactory-bridge-safety
+    restart: unless-stopped
+    environment:
+      - IPC_NAME=safety
+      - IPC_OPCUA_URL=opc.tcp://192.168.100.40:4840
+      - NATS_URL=nats://nats:4222
+      - NATS_CREDS=/etc/nats/creds/ipc-safety.creds
+      - SITE_ID=us-west-01
+      - POLL_INTERVAL_MS=5
+      - PEER_PUBLISH_INTERVAL_MS=2
+    volumes:
+      - ./config/bridge-safety.yaml:/app/config.yaml:ro
+      - ./creds:/etc/nats/creds:ro
+    networks:
+      - edge-net
+      - control-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # NATS → AWS Forwarder (replaces the old MQTT Sparkplug bridge)
+  # ===========================================================================
+  aws-forwarder:
+    build:
+      context: ./bridges
+      dockerfile: Dockerfile.aws
+    container_name: aifactory-aws-forwarder
+    restart: unless-stopped
+    environment:
+      - NATS_URL=nats://nats:4222
+      - AWS_REGION=us-west-2
+      - AWS_IOT_ENDPOINT=${AWS_IOT_ENDPOINT}
+      - SITE_ID=us-west-01
+    volumes:
+      - ./creds:/etc/nats/creds:ro
+      - ./certs/aws:/app/certs:ro
+    networks:
+      - edge-net
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ===========================================================================
+  # Grafana (optional — queries NATS JetStream directly or via InfluxDB)
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:10.4
+    container_name: aifactory-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changeme}
+    networks:
+      - edge-net
+
+networks:
+  edge-net:
+    driver: bridge
+  control-net:
+    driver: macvlan
+    driver_opts:
+      parent: eth1
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
+
+volumes:
+  nats-data:
+  grafana-data:

@@ -1,0 +1,35 @@
+# =============================================================================
+# IPC-03 Environment Monitor — Project Manifest
+# =============================================================================
+
+name: IPC-03_EnvironmentMonitor
+title: "AI Factory IPC-03 — Environmental Monitoring"
+version: 1.0.0.0
+target:
+  hardware: "WAGO PFC200"
+  os: "Linux"
+  runtime: "CODESYS V3.5 SP20"
+
+library_references:
+  - name: AIFactory_Common
+    version: "1.0.0.0"
+  - name: AIFactory_Communication
+    version: "1.0.0.0"
+  - name: AIFactory_Environment
+    version: "1.0.0.0"
+
+tasks:
+  - name: Monitor_Task
+    priority: 3
+    cycle_ms: 100
+    programs: [PRG_Environment_Main]
+  - name: Communication_Task
+    priority: 5
+    cycle_ms: 500
+    programs: [PRG_Communication]
+
+project_files:
+  programs:
+    - POUs/PRG_Environment_Main.pou
+  gvls:
+    - GVLs/GVL_Environment.gvl

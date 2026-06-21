@@ -1,0 +1,96 @@
+# =============================================================================
+# IPC-02 Cooling Control — Project Manifest
+# NVIDIA AI Factory Controls
+# =============================================================================
+# This file describes the CODESYS project for the Cooling IPC.
+# In CODESYS IDE: create project, add library references below.
+# =============================================================================
+
+name: IPC-02_CoolingControl
+title: "AI Factory IPC-02 — Cooling Control"
+version: 1.0.0.0
+description: |
+  CODESYS project for the Cooling Control IPC.
+  Manages CDU units, chiller plant, and thermal management
+  for NVIDIA GPU racks at 120-140 kW per rack.
+
+target:
+  hardware: "Beckhoff CX5240"
+  os: "Debian Linux (PREEMPT_RT)"
+  runtime: "CODESYS V3.5 SP20"
+  architecture: "x86_64"
+
+# Library references (imported into project)
+library_references:
+  - name: AIFactory_Common
+    version: "1.0.0.0"
+    namespace: "Common"
+  
+  - name: AIFactory_Communication
+    version: "1.0.0.0"
+    namespace: "Comm"
+  
+  - name: AIFactory_Cooling
+    version: "1.0.0.0"
+    namespace: "Cooling"
+  
+  - name: AIFactory_Safety
+    version: "1.0.0.0"
+    namespace: "Safety"
+    note: "Safety types needed for peer exchange interpretation"
+
+# CODESYS platform libraries
+platform_libraries:
+  - "IoT Libraries - MQTT"
+  - "SysSocket"
+  - "CmpOPCUAClient"
+  - "CmpOPCUAServer"
+
+# Task configuration
+tasks:
+  - name: Safety_Task
+    priority: 0
+    cycle_ms: 2
+    programs: []  # Safety FB called from Control_Task on this IPC
+    
+  - name: Control_Task
+    priority: 1
+    cycle_ms: 5
+    programs:
+      - PRG_Cooling_Main
+    
+  - name: Communication_Task
+    priority: 5
+    cycle_ms: 100
+    programs:
+      - PRG_Communication
+
+# Project-specific files (not in libraries)
+project_files:
+  programs:
+    - POUs/PRG_Cooling_Main.pou      # Main control loop
+    - POUs/PRG_Communication.pou     # Data collection & publishing
+  gvls:
+    - GVLs/GVL_CrossTask.gvl        # Inter-task data exchange
+    - GVLs/GVL_OPCUA_Publish.gvl    # OPC UA exposed variables
+
+# I/O Configuration
+io_devices:
+  - type: "EtherCAT Master"
+    slaves:
+      - "EK1100 (Bus Coupler) - CDU Room"
+      - "EL3064 (4x AI 0-10V) - Temperature sensors"
+      - "EL3064 (4x AI 0-10V) - Flow/Pressure"
+      - "EL4004 (4x AO 0-10V) - Pump speed, Valve position"
+      - "EL1809 (16x DI) - Pump feedback, Safety inputs"
+      - "EL2809 (16x DO) - Pump start, Isolation valves"
+  
+  - type: "OPC UA Server"
+    endpoint: "opc.tcp://0.0.0.0:4840"
+    security: "Basic256Sha256_SignAndEncrypt"
+    symbols: "GVL_OPCUA_Publish"
+  
+  - type: "OPC UA Client"
+    connections:
+      - url: "opc.tcp://192.168.100.100:4840"
+        name: "Edge Gateway (GPU telemetry)"

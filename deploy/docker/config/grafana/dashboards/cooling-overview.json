@@ -1,0 +1,110 @@
+{
+  "dashboard": {
+    "title": "Cooling System Overview",
+    "uid": "cooling-overview",
+    "timezone": "utc",
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "CDU Supply Temperatures",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.topic =~ /cooling.*SupplyTemp/)\n  |> aggregateWindow(every: 10s, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "celsius",
+            "thresholds": {
+              "steps": [
+                {"value": 30, "color": "green"},
+                {"value": 38, "color": "yellow"},
+                {"value": 42, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "PUE (Power Usage Effectiveness)",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._field == \"PUE\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 1.0,
+            "max": 2.0,
+            "thresholds": {
+              "steps": [
+                {"value": 1.0, "color": "green"},
+                {"value": 1.15, "color": "yellow"},
+                {"value": 1.3, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "GPU Max Temperature",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._field == \"GPU_MaxTemp\")\n  |> last()"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "celsius",
+            "thresholds": {
+              "steps": [
+                {"value": 60, "color": "green"},
+                {"value": 78, "color": "yellow"},
+                {"value": 83, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "CDU Pump Speeds",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.topic =~ /cooling.*PumpSpeed/)\n  |> aggregateWindow(every: 10s, fn: mean)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "percent", "min": 0, "max": 100}
+        }
+      },
+      {
+        "id": 5,
+        "title": "Active Alarms",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "refId": "A",
+            "query": "from(bucket: \"telemetry\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"alarms\" and r._value == true)"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,94 @@
+# =============================================================================
+# .gitignore — NVIDIA AI Factory Controls
+# =============================================================================
+
+# ─── CODESYS ─────────────────────────────────────────────────────────────
+*.compileinfo
+*.object
+*.library
+*.compiled-library
+*_Boot/
+*.bak
+*.~u
+
+# ─── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# ─── Node / TypeScript ───────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+cdk.out/
+*.tsbuildinfo
+.next/
+
+# ─── Docker ──────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─── IDE ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+.project
+.classpath
+
+# ─── Secrets & Certificates (NEVER commit) ───────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.creds
+.env
+.env.*
+!.env.example
+secrets/
+certs/
+
+# ─── OS Files ────────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+desktop.ini
+*.lnk
+
+# ─── Logs ────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Generated / Runtime Data ────────────────────────────────────────────
+simulation_output.json
+*.ndjson
+
+# ─── NATS JetStream Data ─────────────────────────────────────────────────
+jetstream/
+
+# ─── InfluxDB / Grafana Data ─────────────────────────────────────────────
+influxdb-data/
+grafana-data/
+
+# ─── Ansible ─────────────────────────────────────────────────────────────
+*.retry
+deploy/ansible/packages/*.deb
+deploy/ansible/packages/*.rpm
+
+# ─── Terraform (legacy, removed — but in case) ───────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# ─── Review / Temp Files ─────────────────────────────────────────────────
+REVIEW_REPORT.md
+TODO.md

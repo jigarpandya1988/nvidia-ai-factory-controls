@@ -1,0 +1,124 @@
+(* =============================================================================
+    FB_CDU_Controller.M_Initialize — CDU Startup Initialization
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED: Once on first enable or after fault reset.
+   
+   ACTIONS:
+     • Configure sensor validators with physical ranges
+     • Configure PID controllers with tuning from stConfig
+     • Reset state machine to IDLE
+     • Clear all alarm flags
+     • Zero all outputs
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Initialize : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Configure Sensor Validators ────────────────────────────────────────── *)
+(* Supply Temperature: physical range -10..80°C, fallback to setpoint *)
+_fbSens_Supply.fRangeLow := -10.0;
+_fbSens_Supply.fRangeHigh := 80.0;
+_fbSens_Supply.fMaxRateOfChange := 5.0;     (* Max 5°C/s — faster = sensor fault *)
+_fbSens_Supply.fFallbackValue := stConfig.fSupplyTempSP;
+_fbSens_Supply.fFilterTimeConst := 0.5;
+_fbSens_Supply.fFrozenTimeout_s := 60.0;
+_fbSens_Supply.sTag := 'CDU_SupplyTemp';
+_fbSens_Supply.fCycleTime_s := fCycleTime_s;
+_fbSens_Supply.bEnable := TRUE;
+
+(* Return Temperature: physical range -10..90°C *)
+_fbSens_Return.fRangeLow := -10.0;
+_fbSens_Return.fRangeHigh := 90.0;
+_fbSens_Return.fMaxRateOfChange := 5.0;
+_fbSens_Return.fFallbackValue := stConfig.fReturnTempMaxSP;
+_fbSens_Return.fFilterTimeConst := 0.5;
+_fbSens_Return.fFrozenTimeout_s := 60.0;
+_fbSens_Return.sTag := 'CDU_ReturnTemp';
+_fbSens_Return.fCycleTime_s := fCycleTime_s;
+_fbSens_Return.bEnable := TRUE;
+
+(* Flow Rate: physical range 0..800 LPM *)
+_fbSens_Flow.fRangeLow := 0.0;
+_fbSens_Flow.fRangeHigh := 800.0;
+_fbSens_Flow.fMaxRateOfChange := 200.0;     (* LPM/s — pump ramp limit *)
+_fbSens_Flow.fFallbackValue := 0.0;         (* Assume no flow if invalid *)
+_fbSens_Flow.fFilterTimeConst := 1.0;
+_fbSens_Flow.fFrozenTimeout_s := 30.0;
+_fbSens_Flow.sTag := 'CDU_FlowRate';
+_fbSens_Flow.fCycleTime_s := fCycleTime_s;
+_fbSens_Flow.bEnable := TRUE;
+
+(* Differential Pressure: physical range 0..10 bar *)
+_fbSens_Pressure.fRangeLow := 0.0;
+_fbSens_Pressure.fRangeHigh := 10.0;
+_fbSens_Pressure.fMaxRateOfChange := 5.0;
+_fbSens_Pressure.fFallbackValue := 0.0;
+_fbSens_Pressure.fFilterTimeConst := 0.3;
+_fbSens_Pressure.fFrozenTimeout_s := 30.0;
+_fbSens_Pressure.sTag := 'CDU_DiffPressure';
+_fbSens_Pressure.fCycleTime_s := fCycleTime_s;
+_fbSens_Pressure.bEnable := TRUE;
+
+(* ─── Configure PID Controllers ──────────────────────────────────────────── *)
+(* Pump PID: controls supply temperature via pump speed *)
+_fbPID_Pump.fKp := stConfig.fPump_Kp;
+_fbPID_Pump.fTi := stConfig.fPump_Ti;
+_fbPID_Pump.fTd := stConfig.fPump_Td;
+_fbPID_Pump.fOutputMin := stConfig.fPumpSpeedMin;
+_fbPID_Pump.fOutputMax := stConfig.fPumpSpeedMax;
+_fbPID_Pump.fRateLimit := stConfig.fPumpRampRate;
+_fbPID_Pump.fCycleTime_s := fCycleTime_s;
+_fbPID_Pump.fSafeOutput := 0.0;
+_fbPID_Pump.fDeadband := 0.5;
+_fbPID_Pump.bEnable := FALSE;  (* Enabled when state = RUNNING *)
+
+(* Valve PID: controls return temperature via mixing valve *)
+_fbPID_Valve.fKp := stConfig.fValve_Kp;
+_fbPID_Valve.fTi := stConfig.fValve_Ti;
+_fbPID_Valve.fTd := stConfig.fValve_Td;
+_fbPID_Valve.fOutputMin := stConfig.fValvePosMin;
+_fbPID_Valve.fOutputMax := stConfig.fValvePosMax;
+_fbPID_Valve.fRateLimit := 10.0;  (* 10%/s valve rate *)
+_fbPID_Valve.fCycleTime_s := fCycleTime_s;
+_fbPID_Valve.fSafeOutput := 0.0;
+_fbPID_Valve.fDeadband := 1.0;
+_fbPID_Valve.bEnable := FALSE;
+
+(* ─── Reset State Machine ────────────────────────────────────────────────── *)
+_eState := E_CDU_State.IDLE;
+_eMode := E_CDU_Mode.NORMAL;
+_eSafetyState := E_SafetyState.SAFE;
+_bSafetyPermitInternal := TRUE;
+
+(* ─── Clear Outputs ──────────────────────────────────────────────────────── *)
+fAO_PumpSpeed := 0.0;
+fAO_ValvePosition := 0.0;
+bDO_PumpStart := FALSE;
+bDO_IsolationValve := FALSE;
+
+(* ─── Clear Alarms ───────────────────────────────────────────────────────── *)
+_bAlm_SupplyTempHigh := FALSE;
+_bAlm_ReturnTempHigh := FALSE;
+_bAlm_FlowLow := FALSE;
+_bAlm_DeltaTHigh := FALSE;
+_bAlm_PumpFault := FALSE;
+_bAlm_LeakDetected := FALSE;
+_bAlm_PressureHigh := FALSE;
+_bAlm_GPUTempWarn := FALSE;
+
+(* ─── Clear Diagnostics ──────────────────────────────────────────────────── *)
+_fRunSeconds := 0.0;
+_bPumpWasRunning := FALSE;
+
+M_Initialize := TRUE;

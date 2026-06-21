@@ -1,0 +1,15 @@
+(* =============================================================================
+    E_ZoneState — Environmental Zone Operating State
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ZoneState :
+(
+    NORMAL      := 0,   (* All readings within acceptable range *)
+    WARNING     := 1,   (* One or more readings approaching limits *)
+    ALARM       := 2,   (* Limit exceeded — action required *)
+    SENSOR_FAULT:= 3    (* Sensor failure — data unreliable *)
+);
+END_TYPE

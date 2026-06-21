@@ -1,0 +1,84 @@
+(* =============================================================================
+    FB_EnvironmentZone.M_Execute — Zone Monitoring Logic
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Validate Sensors ───────────────────────────────────────────────────── *)
+_fbSens_Temp1.fRawInput := fRaw_Temp1;
+_fbSens_Temp1();
+
+_fbSens_Temp2.fRawInput := fRaw_Temp2;
+_fbSens_Temp2();
+
+_fbSens_Humidity.fRawInput := fRaw_Humidity;
+_fbSens_Humidity();
+
+(* ─── Average Temperature (redundant sensors) ────────────────────────────── *)
+IF _fbSens_Temp1.stOutput.bValid AND _fbSens_Temp2.stOutput.bValid THEN
+    _fAvgTemp := (_fbSens_Temp1.stOutput.fValue + _fbSens_Temp2.stOutput.fValue) / 2.0;
+ELSIF _fbSens_Temp1.stOutput.bValid THEN
+    _fAvgTemp := _fbSens_Temp1.stOutput.fValue;
+ELSIF _fbSens_Temp2.stOutput.bValid THEN
+    _fAvgTemp := _fbSens_Temp2.stOutput.fValue;
+ELSE
+    THIS^.M_SetFault('Both temperature sensors invalid');
+    M_Execute := FALSE;
+    RETURN;
+END_IF
+
+(* ─── Dew Point (Magnus-Tetens) ──────────────────────────────────────────── *)
+IF _fbSens_Humidity.stOutput.bValid AND _fbSens_Humidity.stOutput.fValue > 0.0 THEN
+    _fGamma := LN(_fbSens_Humidity.stOutput.fValue / 100.0)
+             + (_fMagnus_a * _fAvgTemp) / (_fMagnus_b + _fAvgTemp);
+    _fDewPoint := (_fMagnus_b * _fGamma) / (_fMagnus_a - _fGamma);
+ELSE
+    _fDewPoint := -40.0;
+END_IF
+
+_fCondensationMargin := _fAvgTemp - _fDewPoint;
+
+(* ─── Alarm Evaluation ───────────────────────────────────────────────────── *)
+_tonTempHigh(IN := _fAvgTemp > fTempHighSP, PT := _tAlarmDelay);
+_tonTempLow(IN := _fAvgTemp < fTempLowSP, PT := _tAlarmDelay);
+_tonHumHigh(IN := _fbSens_Humidity.stOutput.fValue > fHumHighSP, PT := _tAlarmDelay);
+_tonCondensation(IN := _fCondensationMargin < fCondensationMarginSP, PT := T#10S);
+
+(* ─── Update Status Snapshot ─────────────────────────────────────────────── *)
+stStatus.sZoneName := sZoneName;
+stStatus.fTemperature := _fAvgTemp;
+stStatus.fHumidity := _fbSens_Humidity.stOutput.fValue;
+stStatus.fDewPoint := _fDewPoint;
+stStatus.fCondensationMargin := _fCondensationMargin;
+stStatus.fParticleCount := fRaw_Particles;
+stStatus.bAlm_TempHigh := _tonTempHigh.Q;
+stStatus.bAlm_TempLow := _tonTempLow.Q;
+stStatus.bAlm_HumidityHigh := _tonHumHigh.Q;
+stStatus.bAlm_Condensation := _tonCondensation.Q;
+stStatus.bSensorFault := NOT _fbSens_Temp1.stOutput.bValid AND NOT _fbSens_Temp2.stOutput.bValid;
+stStatus.bHealthy := NOT stStatus.bAlm_TempHigh AND NOT stStatus.bAlm_Condensation AND NOT stStatus.bSensorFault;
+stStatus.nUpdateCounter := stStatus.nUpdateCounter + 1;
+
+(* Zone state *)
+IF stStatus.bSensorFault THEN
+    stStatus.eState := E_ZoneState.SENSOR_FAULT;
+ELSIF stStatus.bAlm_TempHigh OR stStatus.bAlm_Condensation THEN
+    stStatus.eState := E_ZoneState.ALARM;
+ELSIF _fAvgTemp > (fTempHighSP - 3.0) OR _fCondensationMargin < (fCondensationMarginSP + 2.0) THEN
+    stStatus.eState := E_ZoneState.WARNING;
+ELSE
+    stStatus.eState := E_ZoneState.NORMAL;
+END_IF
+
+M_Execute := TRUE;

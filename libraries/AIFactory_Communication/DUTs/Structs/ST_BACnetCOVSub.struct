@@ -1,0 +1,20 @@
+(* =============================================================================
+    ST_BACnetCOVSub — BACnet Change-of-Value Subscription
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+TYPE ST_BACnetCOVSub :
+STRUCT
+    nDeviceInstance       : UDINT;           (* Target BACnet device *)
+    nObjectType          : UINT;            (* Object type *)
+    nObjectInstance      : UDINT;           (* Object instance *)
+    nLifetime_s          : UDINT := 300;    (* Subscription lifetime [seconds] *)
+    nRemainingLife_s     : UDINT;           (* Countdown to expiry *)
+    fCOV_Increment       : REAL := 0.5;    (* Min change to trigger notification *)
+    sNodePath            : STRING(128);     (* Maps to subscription path *)
+    bActive              : BOOL;            (* Subscription confirmed by server *)
+    bExpiring            : BOOL;            (* < 60s remaining — needs renewal *)
+    fLastNotifiedValue   : REAL;            (* Value from last COV notification *)
+    nLastNotifyTime_ms   : UDINT;           (* When last notified *)
+END_STRUCT
+END_TYPE

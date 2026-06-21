@@ -1,0 +1,27 @@
+(* =============================================================================
+    FB_EPO_Controller.bSafetyPermit — I_SafetyMonitored Property
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   Returns the pre-computed safety permit flag.
+   FALSE = at least one zone is tripped, other subsystems must stop.
+   
+   THREAD SAFETY:
+     This returns a single BOOL (_bSafetyPermit) which is atomically
+     readable. The value is computed in M_Execute and stored — the
+     getter performs NO logic, just returns the stored value.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROPERTY bSafetyPermit : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION (GET)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+bSafetyPermit := _bSafetyPermit;

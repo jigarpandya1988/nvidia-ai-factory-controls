@@ -1,0 +1,24 @@
+(* =============================================================================
+    ST_EPO_ZoneStatus — Per-Zone EPO Status
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Complete status for one EPO zone. Array of these forms the
+     full EPO system status published to OPC UA.
+   
+   THREAD SAFETY:
+     Written by Safety_Task (2ms), read by Communication_Task (100ms).
+     Entire array is copied atomically at task boundaries.
+   ============================================================================= *)
+
+TYPE ST_EPO_ZoneStatus :
+STRUCT
+    bTripped             : BOOL;            (* Zone is de-energized *)
+    bRelayEnergized      : BOOL;            (* Relay state (TRUE=power ON) *)
+    bInputFault          : BOOL;            (* Dual-channel discrepancy *)
+    eTripSource          : USINT;           (* What caused the trip (button#/auto) *)
+    sTripReason          : STRING(64);      (* Human-readable trip cause *)
+    dtTripTime           : DT;              (* When the trip occurred *)
+END_STRUCT
+END_TYPE

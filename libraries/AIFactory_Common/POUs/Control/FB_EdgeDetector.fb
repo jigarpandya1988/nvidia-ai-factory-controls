@@ -1,0 +1,61 @@
+(* =============================================================================
+    FB_EdgeDetector — Combined Rising/Falling Edge Detection
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Convenience wrapper providing BOTH rising and falling edge outputs
+     from a single BOOL input. Reduces variable count when you need both.
+   
+   WHEN TO USE:
+     • State transition logging (need to know WHEN it changed, not just state)
+     • Pump start/stop counting (R_TRIG for start, F_TRIG for stop)
+     • Alarm event generation (rising = alarm raised, falling = alarm cleared)
+     • One-shot command execution (only act on the transition, not the level)
+   
+   STANDARD R_TRIG/F_TRIG vs THIS FB:
+     Use standard R_TRIG/F_TRIG when you only need one edge direction.
+     Use this FB when you need both edges from the same signal.
+   
+   USAGE:
+     fbPumpEdge(bInput := bDI_PumpRunning);
+     IF fbPumpEdge.bRising THEN
+         nStartCount := nStartCount + 1;
+     END_IF
+     IF fbPumpEdge.bFalling THEN
+         // Pump stopped unexpectedly — alarm
+     END_IF
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_EdgeDetector
+VAR_INPUT
+    bInput               : BOOL;            (* Signal to monitor *)
+END_VAR
+
+VAR_OUTPUT
+    bRising              : BOOL;            (* TRUE for one scan on 0→1 transition *)
+    bFalling             : BOOL;            (* TRUE for one scan on 1→0 transition *)
+    bChanged             : BOOL;            (* TRUE for one scan on ANY change *)
+END_VAR
+
+VAR
+    _rtrig               : R_TRIG;
+    _ftrig               : F_TRIG;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_rtrig(CLK := bInput);
+_ftrig(CLK := bInput);
+
+bRising := _rtrig.Q;
+bFalling := _ftrig.Q;
+bChanged := bRising OR bFalling;

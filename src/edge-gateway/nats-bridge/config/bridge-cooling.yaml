@@ -1,0 +1,93 @@
+# =============================================================================
+# Bridge Configuration — IPC-02 Cooling
+# Defines which OPC UA nodes to publish and which commands to accept
+# =============================================================================
+
+# OPC UA nodes to READ and publish to NATS as telemetry
+publish_nodes:
+  # CDU 01
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_SupplyTemp"
+    tag: "CDU_01.SupplyTemp"
+    deadband: 0.3       # Only publish if changed by > 0.3°C
+    max_interval_ms: 30000  # Publish at least every 30s (heartbeat)
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_ReturnTemp"
+    tag: "CDU_01.ReturnTemp"
+    deadband: 0.3
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_DeltaT"
+    tag: "CDU_01.DeltaT"
+    deadband: 0.5
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_FlowRate"
+    tag: "CDU_01.FlowRate"
+    deadband: 5.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_PumpSpeed"
+    tag: "CDU_01.PumpSpeed"
+    deadband: 1.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_ValvePos"
+    tag: "CDU_01.ValvePos"
+    deadband: 2.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_Capacity_kW"
+    tag: "CDU_01.Capacity_kW"
+    deadband: 5.0
+    max_interval_ms: 5000
+
+  # Alarms (publish immediately on any change)
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_Alm_TempHigh"
+    tag: "CDU_01.Alm_TempHigh"
+    deadband: 0          # Any change = publish
+    max_interval_ms: 60000
+    is_alarm: true
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_CDU_01_Alm_Leak"
+    tag: "CDU_01.Alm_Leak"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+  # GPU telemetry
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_GPU_MaxTemp"
+    tag: "GPU.MaxTemp"
+    deadband: 0.5
+    max_interval_ms: 1000   # High frequency for GPU temp
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cooling_GPU_TotalPower_kW"
+    tag: "GPU.TotalPower_kW"
+    deadband: 10.0
+    max_interval_ms: 5000
+
+# OPC UA nodes that can be WRITTEN from NATS commands
+command_nodes:
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_CDU_01_SupplyTempSP"
+    tag: "CDU_01.SupplyTempSP"
+    type: float
+    min: 25.0
+    max: 45.0       # Safety limits on commands
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_CDU_01_Enable"
+    tag: "CDU_01.Enable"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_CDU_01_Mode"
+    tag: "CDU_01.Mode"
+    type: int
+    min: 0
+    max: 3
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_System_Reset"
+    tag: "System.Reset"
+    type: bool
+
+# Subjects to subscribe for peer-to-peer data
+subscribe_subjects:
+  - "aifactory.us-west-01.safety.peer"
+  - "aifactory.us-west-01.power.peer"

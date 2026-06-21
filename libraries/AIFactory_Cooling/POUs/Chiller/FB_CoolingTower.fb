@@ -1,0 +1,95 @@
+(* =============================================================================
+    FB_CoolingTower — Cooling Tower Fan Controller
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Controls a single cooling tower cell's fan via VFD to maintain
+     condenser water leaving temperature at setpoint.
+   
+   CONTROL STRATEGY:
+     PID on condenser water temperature leaving the tower.
+     Setpoint = wet-bulb + approach temperature (typically 3-5°C).
+     
+     The approach temperature is the MINIMUM achievable difference
+     between the leaving water and the ambient wet-bulb. Physics
+     prevents the water from cooling below wet-bulb temperature.
+   
+   FAN STAGING (multi-cell):
+     Managed by FB_ChillerPlant supervisor. This FB controls ONE cell.
+     Multiple cells are staged by the supervisor based on total load.
+   
+   ENERGY OPTIMIZATION:
+     Fan power ∝ speed³ (cube law for centrifugal fans).
+     Running 2 fans at 70% uses LESS power than 1 fan at 100%.
+     The supervisor exploits this by spreading load across cells.
+   
+   EXTENDS: FB_Base
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_CoolingTower EXTENDS FB_Base
+VAR_INPUT
+    (* ─── Process Variables ─── *)
+    fLeavingWaterTemp    : REAL;            (* Water leaving tower (to chiller) [°C] *)
+    fEnteringWaterTemp   : REAL;            (* Water entering tower (from chiller) [°C] *)
+    fWetBulbTemp         : REAL;            (* Ambient wet-bulb temperature [°C] *)
+    fWaterFlowRate       : REAL;            (* Condenser water flow [LPM] *)
+    
+    (* ─── Feedback ─── *)
+    bFanRunning          : BOOL;            (* Fan motor running feedback *)
+    bFanFault            : BOOL;            (* VFD fault *)
+    bFanReady            : BOOL;            (* VFD ready *)
+    bBasinLevelOK        : BOOL;            (* Basin water level adequate *)
+    bVibrationOK         : BOOL;            (* Vibration switch OK *)
+    
+    (* ─── Configuration ─── *)
+    fLWT_Setpoint        : REAL := 29.0;    (* Leaving water temp setpoint [°C] *)
+    fApproachMin         : REAL := 3.0;     (* Minimum approach temperature [°C] *)
+    fFanSpeedMin         : REAL := 20.0;    (* Minimum fan speed [%] *)
+    fFanSpeedMax         : REAL := 100.0;   (* Maximum fan speed [%] *)
+    fPID_Kp              : REAL := 3.0;     (* PID proportional gain *)
+    fPID_Ti              : REAL := 120.0;   (* PID integral time [s] *)
+    
+    (* ─── Commands ─── *)
+    bFanEnable           : BOOL;            (* Enable from supervisor *)
+    fSpeedOverride       : REAL;            (* Speed override from supervisor [%]; 0=PID *)
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.1;     (* Task cycle time [s] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Control Outputs ─── *)
+    fFanSpeedCmd         : REAL;            (* Fan VFD speed command [%] *)
+    bFanStartCmd         : BOOL;            (* Fan start command *)
+    
+    (* ─── Status ─── *)
+    fApproachTemp        : REAL;            (* Current approach: LWT - WetBulb [°C] *)
+    fRange               : REAL;            (* Current range: EWT - LWT [°C] *)
+    fHeatRejection_kW    : REAL;            (* Calculated heat rejection [kW] *)
+    bAtMinApproach       : BOOL;            (* Cannot cool further (physics limit) *)
+    
+    (* ─── Alarms ─── *)
+    bAlm_FanFault        : BOOL;
+    bAlm_HighVibration   : BOOL;
+    bAlm_LowBasinLevel   : BOOL;
+    bAlm_HighLWT         : BOOL;            (* LWT > setpoint + 5°C *)
+END_VAR
+
+VAR
+    _fbPID_Fan           : FB_PID;
+    _fLWT_SP_Effective   : REAL;            (* Effective SP (limited by wet-bulb) *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+SUPER^();

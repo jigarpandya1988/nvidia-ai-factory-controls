@@ -1,0 +1,24 @@
+(* =============================================================================
+    E_ProtocolType — Communication Protocol Identifier
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Identifies which protocol a publisher/subscriber uses.
+     Used for configuration, diagnostics, and protocol-specific handling.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ProtocolType :
+(
+    OPCUA           := 0,   (* OPC UA (IEC 62541) — primary inter-IPC *)
+    MQTT            := 1,   (* MQTT with Sparkplug B — cloud telemetry *)
+    MODBUS_TCP      := 2,   (* Modbus TCP — field devices, meters *)
+    MODBUS_RTU      := 3,   (* Modbus RTU (serial) — legacy devices *)
+    BACNET_IP       := 4,   (* BACnet/IP — HVAC integration *)
+    HTTP_REST       := 5,   (* HTTP REST API — GPU telemetry (DCGM) *)
+    SHARED_MEMORY   := 6,   (* Local shared memory — HMI, historian *)
+    ETHERCAT        := 7    (* EtherCAT — real-time field I/O *)
+);
+END_TYPE

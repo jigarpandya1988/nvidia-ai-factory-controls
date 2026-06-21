@@ -1,0 +1,11 @@
+(* =============================================================================
+    TEST_FB_CDU_Controller — Unit Tests for CDU Controller
+    Test Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+FUNCTION_BLOCK TEST_FB_CDU_Controller EXTENDS FB_TestSuite
+VAR
+    _fbCDU               : FB_CDU_Controller;
+    _stConfig            : ST_CDU_Config;
+    _i                   : INT;
+END_VAR

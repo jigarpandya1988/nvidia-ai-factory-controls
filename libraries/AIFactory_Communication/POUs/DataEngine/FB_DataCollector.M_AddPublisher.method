@@ -1,0 +1,43 @@
+(* =============================================================================
+    FB_DataCollector.M_AddPublisher — Register a Publishing Backend
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   USAGE:
+     // In PRG_Communication initialization:
+     fbDataCollector.M_AddPublisher(refPublisher := fbOPCUA_Publisher);
+     fbDataCollector.M_AddPublisher(refPublisher := fbMQTT_Publisher);
+     fbDataCollector.M_AddPublisher(refPublisher := fbModbus_Publisher);
+   
+   Multiple publishers can be registered. Data is fan-out to ALL of them.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_AddPublisher : BOOL
+VAR_INPUT
+    refPublisher : I_DataPublisher;     (* Reference to publisher instance *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF _nPublisherCount >= C_MAX_PUBLISHERS THEN
+    M_AddPublisher := FALSE;
+    RETURN;
+END_IF
+
+IF refPublisher = 0 THEN
+    M_AddPublisher := FALSE;
+    RETURN;
+END_IF
+
+_nPublisherCount := _nPublisherCount + 1;
+_arefPublishers[_nPublisherCount] := refPublisher;
+
+M_AddPublisher := TRUE;

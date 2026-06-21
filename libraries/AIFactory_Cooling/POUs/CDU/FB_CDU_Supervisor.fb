@@ -1,0 +1,92 @@
+(* =============================================================================
+    FB_CDU_Supervisor — N+1 CDU Switchover Supervisor
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Manages N+1 redundancy for up to 8 Coolant Distribution Units.
+     Determines lead and standby CDU assignment, performs automatic
+     switchover on fault, and rotates lead/lag for even wear.
+   
+   N+1 REDUNDANCY:
+     - One CDU is designated "lead" (active cooling)
+     - One CDU is designated "standby" (ready to take over)
+     - Remaining CDUs may be in maintenance or additional standby
+     - If lead faults: automatic switchover to standby within 5 seconds
+   
+   LEAD/LAG ROTATION:
+     - Default interval: 168 hours (1 week)
+     - Periodically swaps lead and standby for even wear distribution
+     - Rotation only occurs when both CDUs are healthy
+   
+   EMERGENCY:
+     - If ALL CDUs fault: set emergency flag (facility cannot cool)
+     - This condition requires immediate operator intervention
+   
+   EXTENDS: FB_Base
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_CDU_Supervisor EXTENDS FB_Base
+VAR_INPUT
+    (* ─── CDU Status Array (read from CDU controllers) ─── *)
+    astCDU_Status        : ARRAY[1..8] OF ST_CDU_Status;
+    
+    (* ─── Configuration ─── *)
+    nTotalCDUs           : USINT := 2;      (* Number of CDUs in this group *)
+    fRotationInterval_h  : REAL := 168.0;   (* Lead/lag rotation interval [hours] *)
+    fSwitchoverTimeout_s : REAL := 5.0;     (* Max time for switchover [seconds] *)
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.005;   (* Task cycle time [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Enable Commands (one per CDU) ─── *)
+    abCDU_Enable         : ARRAY[1..8] OF BOOL;  (* TRUE = CDU should run *)
+    
+    (* ─── Lead/Standby Assignment ─── *)
+    nLeadCDU             : USINT;           (* CDU number currently lead *)
+    nStandbyCDU          : USINT;           (* CDU number currently standby *)
+    
+    (* ─── Status ─── *)
+    bEmergency           : BOOL;            (* TRUE = ALL CDUs faulted *)
+    bSwitchoverActive    : BOOL;            (* Switchover in progress *)
+    nHealthyCDUCount     : USINT;           (* Number of healthy CDUs *)
+END_VAR
+
+VAR
+    (* ─── Rotation Timer ─── *)
+    _fRotationAccum_s    : REAL;            (* Time since last rotation [s] *)
+    _fRotationInterval_s : REAL;            (* Rotation interval in seconds *)
+    
+    (* ─── Switchover ─── *)
+    _fSwitchoverAccum    : REAL;            (* Time since switchover started [s] *)
+    _bSwitchoverPending  : BOOL;            (* Switchover in progress *)
+    _nNewLead            : USINT;           (* CDU that will become lead *)
+    
+    (* ─── Edge Trigger ─── *)
+    _rtrigLeadFault      : R_TRIG;          (* Rising edge: lead CDU faulted *)
+    _bLeadFaultDetected  : BOOL;            (* Lead CDU fault state *)
+    
+    (* ─── Initialization ─── *)
+    _bAssigned           : BOOL;            (* Lead/standby assigned *)
+    
+    (* ─── Loop Variable ─── *)
+    _i                   : USINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base class lifecycle manages enable/init/fault gating.
+   M_Execute contains the lead/standby logic. *)
+
+SUPER^();

@@ -1,0 +1,50 @@
+(* =============================================================================
+    FB_EnvironmentZone.M_Initialize — Configure Sensor Validators
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Initialize : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Temperature sensors: -40..80°C physical range *)
+_fbSens_Temp1.fRangeLow := -40.0;
+_fbSens_Temp1.fRangeHigh := 80.0;
+_fbSens_Temp1.fMaxRateOfChange := 2.0;  (* Max 2°C/s for room temp *)
+_fbSens_Temp1.fFallbackValue := 25.0;
+_fbSens_Temp1.fFilterTimeConst := 2.0;
+_fbSens_Temp1.fFrozenTimeout_s := 120.0;  (* Slow-changing — 2 min timeout *)
+_fbSens_Temp1.sTag := CONCAT(sZoneName, '_T1');
+_fbSens_Temp1.fCycleTime_s := fCycleTime_s;
+_fbSens_Temp1.bEnable := TRUE;
+
+_fbSens_Temp2.fRangeLow := -40.0;
+_fbSens_Temp2.fRangeHigh := 80.0;
+_fbSens_Temp2.fMaxRateOfChange := 2.0;
+_fbSens_Temp2.fFallbackValue := 25.0;
+_fbSens_Temp2.fFilterTimeConst := 2.0;
+_fbSens_Temp2.fFrozenTimeout_s := 120.0;
+_fbSens_Temp2.sTag := CONCAT(sZoneName, '_T2');
+_fbSens_Temp2.fCycleTime_s := fCycleTime_s;
+_fbSens_Temp2.bEnable := TRUE;
+
+(* Humidity sensor: 0..100 %RH *)
+_fbSens_Humidity.fRangeLow := 0.0;
+_fbSens_Humidity.fRangeHigh := 100.0;
+_fbSens_Humidity.fMaxRateOfChange := 10.0;
+_fbSens_Humidity.fFallbackValue := 50.0;
+_fbSens_Humidity.fFilterTimeConst := 5.0;
+_fbSens_Humidity.fFrozenTimeout_s := 300.0;  (* Humidity changes very slowly *)
+_fbSens_Humidity.sTag := CONCAT(sZoneName, '_RH');
+_fbSens_Humidity.fCycleTime_s := fCycleTime_s;
+_fbSens_Humidity.bEnable := TRUE;
+
+M_Initialize := TRUE;

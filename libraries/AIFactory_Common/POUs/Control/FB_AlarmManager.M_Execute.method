@@ -1,0 +1,59 @@
+(* =============================================================================
+    FB_AlarmManager.M_Execute — Cyclic Alarm Status Computation
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every scan when: bEnable=TRUE AND initialized AND no fault latched.
+   
+   LOGIC:
+     Scans the alarm buffer and computes summary statistics:
+     - nActiveCount: alarms currently active
+     - nUnacknowledgedCount: alarms not yet acknowledged
+     - bAnyCritical: any CRITICAL severity alarm active
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Edge triggers for event counting ──────────────────────────────────────── *)
+_rtrigRaise(CLK := _bRaiseEvent);
+_rtrigClear(CLK := _bClearEvent);
+
+(* Reset pulse flags (one-shot per scan) *)
+_bRaiseEvent := FALSE;
+_bClearEvent := FALSE;
+
+(* ─── Compute summary statistics from buffer ────────────────────────────────── *)
+nActiveCount := 0;
+nUnacknowledgedCount := 0;
+bAnyCritical := FALSE;
+
+FOR _i := 1 TO C_BUFFER_SIZE DO
+    IF _i <= _nBufferCount THEN
+        IF _astBuffer[_i].bActive THEN
+            nActiveCount := nActiveCount + 1;
+            
+            IF _astBuffer[_i].eSeverity = E_AlarmSeverity.CRITICAL THEN
+                bAnyCritical := TRUE;
+            END_IF
+        END_IF
+        
+        IF _astBuffer[_i].bActive AND NOT _astBuffer[_i].bAcknowledged THEN
+            nUnacknowledgedCount := nUnacknowledgedCount + 1;
+        END_IF
+    END_IF
+END_FOR
+
+nTotalAlarms := _nBufferCount;
+
+M_Execute := TRUE;

@@ -1,0 +1,58 @@
+(* =============================================================================
+    FB_CDU_Controller.M_SafeState — CDU Fail-Safe Output State
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   SAFE STATE DEFINITION FOR CDU:
+     • Pump: STOPPED (de-energized)
+     • Isolation valve: CLOSED (de-energized = fail-closed)
+     • Speed reference: 0%
+     • Valve position: 0% (full bypass — no heat exchange)
+     • PID controllers: DISABLED
+   
+   RATIONALE:
+     Stopping the pump prevents uncontrolled flow. Closing isolation
+     prevents coolant loss if there's a leak. The GPU thermal protection
+     (throttling) is the last line of defense if cooling is lost.
+   
+   IDEMPOTENT: Safe to call on every scan while disabled/faulted.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Physical Outputs: ALL to safe position ─────────────────────────────── *)
+fAO_PumpSpeed := 0.0;
+fAO_ValvePosition := 0.0;
+bDO_PumpStart := FALSE;
+bDO_IsolationValve := FALSE;    (* FALSE = closed = fail-safe *)
+
+(* ─── Disable PID controllers ────────────────────────────────────────────── *)
+_fbPID_Pump.bEnable := FALSE;
+_fbPID_Pump();
+_fbPID_Valve.bEnable := FALSE;
+_fbPID_Valve();
+
+(* ─── Disable sensor validators (mark outputs invalid) ───────────────────── *)
+_fbSens_Supply.bEnable := FALSE;
+_fbSens_Supply();
+_fbSens_Return.bEnable := FALSE;
+_fbSens_Return();
+_fbSens_Flow.bEnable := FALSE;
+_fbSens_Flow();
+_fbSens_Pressure.bEnable := FALSE;
+_fbSens_Pressure();
+
+(* ─── Update status snapshot ─────────────────────────────────────────────── *)
+THIS^._UpdateStatus();
+
+M_SafeState := TRUE;

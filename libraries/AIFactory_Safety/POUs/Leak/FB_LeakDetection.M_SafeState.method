@@ -1,0 +1,46 @@
+(* =============================================================================
+    FB_LeakDetection.M_SafeState — Fail-Safe Output Enforcement
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   SAFE-STATE DEFINITION:
+     All outputs FALSE — no trip request, no isolation commands.
+     This is the safe state because:
+       - No trip request = EPO controller does not act on stale data
+       - No isolation = valves remain in current state (manual intervention)
+     
+   CRITICAL:
+     This method is IDEMPOTENT. Multiple calls produce same result.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Drive all outputs to safe values ──────────────────────────────────────── *)
+bTripRequest := FALSE;
+bMinorLeak := FALSE;
+bMajorLeak := FALSE;
+nActiveZoneCount := 0;
+bAlm_LeakMinor := FALSE;
+bAlm_LeakMajor := FALSE;
+
+FOR _i := 1 TO C_MAX_ZONES DO
+    abZoneActive[_i] := FALSE;
+    abIsolateZone[_i] := FALSE;
+END_FOR
+
+(* Safety interface: report safe *)
+_bSafetyPermit := TRUE;
+_eSafetyState := E_SafetyState.SAFE;
+_bHasActiveAlarm := FALSE;
+
+M_SafeState := TRUE;

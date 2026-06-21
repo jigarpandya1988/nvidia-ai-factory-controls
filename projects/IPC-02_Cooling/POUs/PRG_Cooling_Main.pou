@@ -1,0 +1,120 @@
+(* =============================================================================
+    PRG_Cooling_Main — IPC-02 Control Task Main Program
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   TASK: Control_Task — Priority 1, Cycle 5ms
+   
+   PURPOSE:
+     Instantiates and executes all CDU controllers.
+     Reads I/O, runs control logic, writes outputs.
+     Updates GVL_CrossTask status snapshots for Communication_Task.
+   
+   EXECUTION FLOW:
+     1. Read config snapshot from GVL_CrossTask (written by Comm task)
+     2. Execute CDU controllers (PID, state machine, alarms)
+     3. Write status snapshots to GVL_CrossTask (read by Comm task)
+     4. Write physical I/O outputs
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_Cooling_Main
+VAR
+    (* --- CDU Controller Instances --- *)
+    fbCDU_01             : FB_CDU_Controller;
+    fbCDU_02             : FB_CDU_Controller;
+    fbCDU_03             : FB_CDU_Controller;
+    fbCDU_04             : FB_CDU_Controller;
+    
+    (* --- Local Config Copies (prevent mid-cycle changes) --- *)
+    _stConfig_01         : ST_CDU_Config;
+    _stConfig_02         : ST_CDU_Config;
+END_VAR
+
+VAR CONSTANT
+    C_CYCLE_TIME_S       : REAL := 0.005;   (* 5ms control task cycle *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── STEP 1: Read config from Communication_Task (atomic copy) ──────────── *)
+_stConfig_01 := GVL_CrossTask.stCDU_01_Config;
+_stConfig_02 := GVL_CrossTask.stCDU_02_Config;
+
+
+(* ─── STEP 2: Execute CDU Controllers ────────────────────────────────────── *)
+
+(* CDU 01 *)
+fbCDU_01(
+    (* Raw I/O — mapped to EtherCAT terminals in CODESYS device config *)
+    fRaw_SupplyTemp := 0.0,     (* TODO: Map to EtherCAT AI terminal *)
+    fRaw_ReturnTemp := 0.0,
+    fRaw_FlowRate := 0.0,
+    fRaw_DiffPressure := 0.0,
+    bDI_PumpRunning := FALSE,
+    bDI_PumpFault := FALSE,
+    bDI_PumpReady := TRUE,
+    bDI_HighPressure := FALSE,
+    bDI_LowFlow := FALSE,
+    bDI_LeakDetected := FALSE,
+    
+    (* Safety — from safety IPC via GVL *)
+    bSafetyPermit := GVL_CrossTask.bSafetyPermit_Global,
+    bEmergencyStop := GVL_CrossTask.bEmergencyStop_Global,
+    
+    (* GPU telemetry — from Communication_Task *)
+    fGPU_TotalPower_kW := GVL_CrossTask.fGPU_Row1_TotalPower,
+    fGPU_MaxTemp := GVL_CrossTask.fGPU_Row1_MaxTemp,
+    bGPU_DataValid := GVL_CrossTask.bGPU_DataFresh,
+    
+    (* Config *)
+    stConfig := _stConfig_01,
+    fCycleTime_s := C_CYCLE_TIME_S,
+    
+    (* Commands from operator/SCADA *)
+    bEnable := TRUE,
+    bManualMode := FALSE,
+    eRequestedMode := E_CDU_Mode.NORMAL
+);
+
+(* CDU 02 — same pattern *)
+fbCDU_02(
+    fRaw_SupplyTemp := 0.0,
+    fRaw_ReturnTemp := 0.0,
+    fRaw_FlowRate := 0.0,
+    fRaw_DiffPressure := 0.0,
+    bDI_PumpRunning := FALSE,
+    bDI_PumpFault := FALSE,
+    bDI_PumpReady := TRUE,
+    bDI_HighPressure := FALSE,
+    bDI_LowFlow := FALSE,
+    bDI_LeakDetected := FALSE,
+    bSafetyPermit := GVL_CrossTask.bSafetyPermit_Global,
+    bEmergencyStop := GVL_CrossTask.bEmergencyStop_Global,
+    fGPU_TotalPower_kW := GVL_CrossTask.fGPU_Row2_TotalPower,
+    fGPU_MaxTemp := GVL_CrossTask.fGPU_Row2_MaxTemp,
+    bGPU_DataValid := GVL_CrossTask.bGPU_DataFresh,
+    stConfig := _stConfig_02,
+    fCycleTime_s := C_CYCLE_TIME_S,
+    bEnable := TRUE,
+    bManualMode := FALSE,
+    eRequestedMode := E_CDU_Mode.NORMAL
+);
+
+
+(* ─── STEP 3: Write status to GVL_CrossTask (atomic struct copy) ─────────── *)
+GVL_CrossTask.stCDU_01_Status := fbCDU_01.stStatus;
+GVL_CrossTask.stCDU_02_Status := fbCDU_02.stStatus;
+
+
+(* ─── STEP 4: Write physical I/O outputs ─────────────────────────────────── *)
+(* TODO: Map fbCDU_01.fAO_PumpSpeed → EtherCAT AO terminal
+         Map fbCDU_01.bDO_PumpStart → EtherCAT DO terminal
+         etc. *)

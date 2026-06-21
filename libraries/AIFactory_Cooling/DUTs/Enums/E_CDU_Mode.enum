@@ -1,0 +1,26 @@
+(* =============================================================================
+    E_CDU_Mode — CDU Operating Mode
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   MODES:
+     NORMAL     — Standard PID control to temperature setpoint
+     ECONOMIZER — Free cooling bypass (ambient cold enough)
+     MAX_COOL   — Emergency maximum cooling (all pumps 100%)
+     STANDBY    — Hot standby, ready for instant switchover
+   
+   MODE TRANSITIONS:
+     Mode changes are REQUESTED via input, but only APPLIED when the
+     state machine is in RUNNING state. Safety overrides all modes.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_CDU_Mode :
+(
+    NORMAL      := 0,   (* PID control to setpoint *)
+    ECONOMIZER  := 1,   (* Free cooling; CDU heat exchanger bypassed *)
+    MAX_COOL    := 2,   (* Emergency: all outputs to maximum cooling *)
+    STANDBY     := 3    (* Hot standby; pump at minimum, ready to ramp *)
+);
+END_TYPE

@@ -1,0 +1,40 @@
+(* =============================================================================
+    ST_DataPoint — Single Publishable Data Point Configuration
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Describes one data point to be collected/published. The DataCollector
+     maintains an array of these, each with its own publish mode, deadband,
+     and rate settings.
+   
+   USAGE:
+     Configured at startup (from persistent storage or hardcoded).
+     Runtime values (fCurrentValue, bNeedsPublish) updated every scan.
+   ============================================================================= *)
+
+TYPE ST_DataPoint :
+STRUCT
+    (* --- Identity --- *)
+    sNodePath            : STRING(128);     (* Hierarchical OPC UA-style path *)
+    sDescription         : STRING(64);      (* Human-readable description *)
+    sUnit                : STRING(16);      (* Engineering unit *)
+    nIndex               : UINT;            (* Array index for fast lookup *)
+    
+    (* --- Configuration --- *)
+    ePublishMode         : E_PublishMode;   (* When to publish *)
+    fDeadband            : REAL;            (* Change threshold for ON_CHANGE [eng. units] *)
+    nCyclicInterval_ms   : UDINT;          (* Interval for CYCLIC mode [ms] *)
+    nHeartbeatInterval_ms: UDINT;          (* Max silence for HYBRID mode [ms] *)
+    
+    (* --- Runtime State --- *)
+    fCurrentValue        : REAL;            (* Current value *)
+    fLastPublished       : REAL;            (* Last value that was sent *)
+    nLastPublishTime_ms  : UDINT;          (* Timestamp of last publish *)
+    bNeedsPublish        : BOOL;            (* TRUE = pending publish *)
+    bEnabled             : BOOL;            (* FALSE = skip this point *)
+    
+    (* --- Quality --- *)
+    nQuality             : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+END_STRUCT
+END_TYPE

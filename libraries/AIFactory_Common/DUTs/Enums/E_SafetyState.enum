@@ -1,0 +1,32 @@
+(* =============================================================================
+    E_SafetyState — Safety Subsystem State
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Tracks the safety posture of any monitored subsystem.
+     Used by I_SafetyMonitored interface implementors.
+   
+   SAFETY LOGIC:
+     - SAFE: Normal operation permitted.
+     - ALERT: Pre-alarm; increased monitoring, no action yet.
+     - ALARM: Active alarm; protective response initiated.
+     - TRIPPED: Safety function has activated (EPO, isolation, etc.)
+     - RESET_REQUIRED: Condition cleared but manual reset needed.
+   
+   IMPORTANT:
+     Transitions from TRIPPED → SAFE require PHYSICAL operator action
+     (key switch + button + authorization). Software-only reset is forbidden.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SafetyState :
+(
+    SAFE            := 0,   (* All conditions normal *)
+    ALERT           := 1,   (* Pre-alarm threshold crossed *)
+    ALARM           := 2,   (* Alarm active, response in progress *)
+    TRIPPED         := 3,   (* Safety function activated *)
+    RESET_REQUIRED  := 4    (* Condition cleared; awaiting manual reset *)
+);
+END_TYPE

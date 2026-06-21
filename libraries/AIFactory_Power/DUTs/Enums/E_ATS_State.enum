@@ -1,0 +1,26 @@
+(* =============================================================================
+    E_ATS_State — Automatic Transfer Switch State
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Tracks the state of each Automatic Transfer Switch.
+     ATS transfers load between utility feeds or to generator.
+   
+   TRANSFER SEQUENCE:
+     SOURCE_A ──(A fails)──→ TRANSFERRING ──(B ready)──→ SOURCE_B
+     SOURCE_B ──(A restored)──→ RETRANSFERRING ──→ SOURCE_A
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ATS_State :
+(
+    SOURCE_A        := 0,   (* Connected to preferred source *)
+    SOURCE_B        := 1,   (* Connected to alternate source *)
+    TRANSFERRING    := 2,   (* Transfer in progress (break-before-make) *)
+    RETRANSFERRING  := 3,   (* Returning to preferred source *)
+    FAULT           := 4,   (* Transfer mechanism fault *)
+    OPEN            := 5    (* Neither source connected (EPO state) *)
+);
+END_TYPE

@@ -1,0 +1,133 @@
+(* =============================================================================
+    FB_Subscriber_REST — HTTP/REST Client for GPU Telemetry (DCGM)
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataSubscriber by polling REST API endpoints.
+     Primary use case: reading NVIDIA DCGM (Data Center GPU Manager) data.
+   
+   GPU TELEMETRY ENDPOINT:
+     DCGM exposes metrics at: http://{host}:9400/metrics (Prometheus format)
+     Or via gRPC/REST: http://{host}:5555/v1/gpu/status
+   
+   DATA COLLECTED:
+     • GPU junction temperature (per GPU)
+     • GPU power draw (per GPU)
+     • GPU utilization (%)
+     • Memory temperature
+     • NVLink bandwidth utilization
+     • Thermal throttle status
+   
+   ARCHITECTURE:
+     This FB does NOT make HTTP calls directly from CODESYS.
+     Instead, the edge gateway Python service polls DCGM and publishes
+     results to OPC UA or MQTT. This FB reads from that intermediate layer.
+   
+     Alternative (direct from CODESYS):
+       Uses CODESYS SysSocket + HTTP client library for direct REST calls.
+       Only feasible on x86 IPCs with sufficient resources.
+   
+   POLLING STRATEGY:
+     • Poll interval: 1-10 seconds (configurable)
+     • Timeout: 2 seconds per request
+     • On timeout: mark data stale, use last-known-good values
+     • On 3 consecutive timeouts: mark device offline
+   
+   REQUIRES:
+     CODESYS HTTP Client library (CmpWebClient or SysSocket raw)
+     OR: edge gateway intermediate translation (preferred)
+   
+   THREAD SAFETY:
+     HTTP operations are blocking. Run at low priority (Communication_Task).
+     Never block the Control_Task or Safety_Task.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Subscriber_REST IMPLEMENTS I_DataSubscriber
+VAR_INPUT
+    (* --- Endpoint Configuration --- *)
+    sBaseURL             : STRING(128) := 'http://192.168.200.50:9400';
+    sEndpointPath        : STRING(64) := '/metrics';
+    nPollInterval_ms     : UDINT := 2000;   (* Poll every 2 seconds *)
+    nTimeout_ms          : UDINT := 2000;   (* HTTP timeout *)
+    
+    (* --- Authentication (if required) --- *)
+    sAuthToken           : STRING(128) := '';
+    bUseAuth             : BOOL := FALSE;
+    
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.1;
+END_VAR
+
+VAR
+    _bConnected          : BOOL;
+    _nSubscriptionCount  : UDINT;
+    _nStaleCount         : UDINT;
+    
+    (* --- Poll Timing --- *)
+    _nTimeSinceLastPoll  : UDINT;
+    _bPollPending        : BOOL;
+    
+    (* --- Response Parsing --- *)
+    _sLastResponse       : STRING(4096);    (* Last HTTP response body *)
+    _bResponseValid      : BOOL;
+    
+    (* --- GPU Data (parsed from response) --- *)
+    _afGPU_Temperature   : ARRAY[1..72] OF REAL;   (* Per-GPU temp [°C] *)
+    _afGPU_Power         : ARRAY[1..72] OF REAL;   (* Per-GPU power [W] *)
+    _afGPU_Utilization   : ARRAY[1..72] OF REAL;   (* Per-GPU util [%] *)
+    _nGPU_Count          : USINT;                  (* Detected GPU count *)
+    _fGPU_MaxTemp        : REAL;                   (* Max across all GPUs *)
+    _fGPU_TotalPower_kW  : REAL;                   (* Sum of all GPU power *)
+    
+    (* --- Health Tracking --- *)
+    _nConsecutiveErrors  : USINT;
+    _nMaxErrors          : USINT := 3;
+    _nTotalRequests      : UDINT;
+    _nSuccessfulRequests : UDINT;
+    
+    (* --- Edge Triggers --- *)
+    _rtrigPollDue        : R_TRIG;          (* Time to poll *)
+    _ftrigConnectionLost : F_TRIG;          (* Connection went down *)
+    
+    (* --- Received Data (I_DataSubscriber interface) --- *)
+    _astReceivedData     : ARRAY[1..32] OF ST_Subscription;
+    _nReceivedCount      : UINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* --- Poll Timing --- *)
+_nTimeSinceLastPoll := _nTimeSinceLastPoll + REAL_TO_UDINT(fCycleTime_s * 1000.0);
+_bPollPending := (_nTimeSinceLastPoll >= nPollInterval_ms);
+
+IF _bPollPending AND NOT _bPollPending THEN
+    (* In production with CODESYS HTTP library:
+       1. Build HTTP GET request to sBaseURL + sEndpointPath
+       2. Add auth header if bUseAuth
+       3. Send request (async or sync depending on library)
+       4. On response: parse JSON/Prometheus format
+       5. Extract GPU temps, power, utilization
+       6. Update _afGPU_* arrays
+       7. Calculate _fGPU_MaxTemp, _fGPU_TotalPower_kW
+       8. Update _astReceivedData for I_DataSubscriber consumers
+       9. Reset _nTimeSinceLastPoll
+       10. On error: increment _nConsecutiveErrors *)
+    _nTimeSinceLastPoll := 0;
+    _nTotalRequests := _nTotalRequests + 1;
+END_IF
+
+(* --- Connection Status --- *)
+_ftrigConnectionLost(CLK := _bConnected);
+_bConnected := (_nConsecutiveErrors < _nMaxErrors);
+
+(* --- Aggregate GPU Metrics --- *)
+(* In production: scan _afGPU_Temperature for max, sum _afGPU_Power *)

@@ -1,0 +1,228 @@
+(* =============================================================================
+    TEST_FB_PID.M_RunTests — PID Controller Test Cases
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_RunTests : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+sSuiteName := 'TEST_FB_PID';
+
+
+(* ─── Test 1: Proportional Output ────────────────────────────────────────── *)
+THIS^.TEST('Proportional_PositiveError');
+
+_fbPID.bEnable := TRUE;
+_fbPID.bReset := TRUE;
+_fbPID();  (* Reset *)
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 2.0;
+_fbPID.fTi := 0.0;         (* No integral *)
+_fbPID.fTd := 0.0;         (* No derivative *)
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 40.0;  (* Error = +10 *)
+_fbPID.fOutputMin := 0.0;
+_fbPID.fOutputMax := 100.0;
+_fbPID.fCycleTime_s := 0.005;
+_fbPID();
+
+(* Expected: Kp * (SP*weight - PV) = 2.0 * (50-40) = 20.0 *)
+THIS^.AssertEquals_REAL(20.0, _fbPID.fOutput, 0.1, 'P-only output should be Kp*error=20');
+THIS^.AssertEquals_REAL(10.0, _fbPID.fError, 0.01, 'Error should be SP-PV=10');
+
+
+(* ─── Test 2: Integral Accumulation ──────────────────────────────────────── *)
+THIS^.TEST('Integral_Accumulates');
+
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 1.0;
+_fbPID.fTi := 10.0;        (* Integral time 10s *)
+_fbPID.fTd := 0.0;
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 40.0;  (* Constant error = 10 *)
+_fbPID.fCycleTime_s := 0.1;    (* 100ms cycle *)
+
+(* Run 10 scans = 1 second of integration *)
+FOR _i := 1 TO 10 DO
+    _fbPID();
+END_FOR
+
+(* After 1s: P = 1*(50-40) = 10, I = (1/10)*10*1s = 1.0, Total ≈ 11.0 *)
+THIS^.AssertGreater(_fbPID.fOutput, 10.0, 'Output should exceed P-only after integration');
+THIS^.AssertGreater(_fbPID.fI_Term, 0.5, 'Integral term should be accumulating');
+
+
+(* ─── Test 3: Anti-Windup at Upper Limit ─────────────────────────────────── *)
+THIS^.TEST('AntiWindup_UpperLimit');
+
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 10.0;
+_fbPID.fTi := 1.0;
+_fbPID.fSetpoint := 100.0;
+_fbPID.fProcessValue := 0.0;  (* Huge error drives output to max *)
+_fbPID.fOutputMax := 100.0;
+_fbPID.fCycleTime_s := 0.1;
+
+(* Run many scans to try to windup *)
+FOR _i := 1 TO 100 DO
+    _fbPID();
+END_FOR
+
+THIS^.AssertEquals_REAL(100.0, _fbPID.fOutput, 0.01, 'Output should be clamped at max');
+THIS^.AssertTrue(_fbPID.bAtUpperLimit, 'Should report at upper limit');
+
+(* Now remove error — integrator should NOT cause overshoot *)
+_fbPID.fProcessValue := 100.0;  (* Error = 0 *)
+FOR _i := 1 TO 20 DO
+    _fbPID();
+END_FOR
+
+THIS^.AssertLess(_fbPID.fOutput, 50.0, 'Anti-windup: output should drop quickly, no overshoot');
+
+
+(* ─── Test 4: Bumpless Transfer (Manual → Auto) ─────────────────────────── *)
+THIS^.TEST('BumplessTransfer_ManualToAuto');
+
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 2.0;
+_fbPID.fTi := 30.0;
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 45.0;
+_fbPID.fOutputMax := 100.0;
+_fbPID.fCycleTime_s := 0.005;
+
+(* Run in manual mode at 60% *)
+_fbPID.bManualMode := TRUE;
+_fbPID.fManualOutput := 60.0;
+FOR _i := 1 TO 10 DO
+    _fbPID();
+END_FOR
+
+THIS^.AssertEquals_REAL(60.0, _fbPID.fOutput, 0.01, 'Manual mode should output 60%');
+
+(* Switch to auto — output should NOT jump *)
+_fbPID.bManualMode := FALSE;
+_fbPID();
+
+THIS^.AssertEquals_REAL(60.0, _fbPID.fOutput, 5.0, 'Bumpless: output should stay near 60% on switch');
+
+
+(* ─── Test 5: Rate Limiting ──────────────────────────────────────────────── *)
+THIS^.TEST('RateLimit_ConstrainsChange');
+
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 50.0;        (* Very aggressive — would jump without rate limit *)
+_fbPID.fTi := 0.0;
+_fbPID.fRateLimit := 10.0; (* Max 10 units/second *)
+_fbPID.fSetpoint := 100.0;
+_fbPID.fProcessValue := 0.0;
+_fbPID.fCycleTime_s := 0.1;
+_fbPID.fOutputMax := 100.0;
+
+_fbPID();  (* First scan after reset *)
+_fbPID();  (* Second scan *)
+
+(* With 10 units/s rate limit at 100ms cycle: max change = 1.0 per scan *)
+THIS^.AssertLess(_fbPID.fOutput, 5.0, 'Rate limit should constrain output rise');
+
+
+(* ─── Test 6: Deadband ───────────────────────────────────────────────────── *)
+THIS^.TEST('Deadband_NoActionWithin');
+
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 10.0;
+_fbPID.fTi := 0.0;
+_fbPID.fTd := 0.0;
+_fbPID.fDeadband := 2.0;   (* ±2 deadband *)
+_fbPID.fRateLimit := 0.0;
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 49.0;  (* Error = 1.0, within deadband *)
+_fbPID.fCycleTime_s := 0.005;
+
+_fbPID();
+
+THIS^.AssertEquals_REAL(0.0, _fbPID.fOutput, 0.01, 'Within deadband: output should be 0');
+
+
+(* ─── Test 7: Safe State on Disable ─────────────────────────────────────── *)
+THIS^.TEST('SafeState_DisableZerosOutput');
+
+_fbPID.bEnable := TRUE;
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 5.0;
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 30.0;
+_fbPID.fSafeOutput := 0.0;
+_fbPID.fDeadband := 0.0;
+_fbPID.fRateLimit := 0.0;
+_fbPID();
+
+THIS^.AssertGreater(_fbPID.fOutput, 0.0, 'Enabled: should have non-zero output');
+
+(* Disable *)
+_fbPID.bEnable := FALSE;
+_fbPID();
+
+THIS^.AssertEquals_REAL(0.0, _fbPID.fOutput, 0.01, 'Disabled: output should be safe value (0)');
+THIS^.AssertFalse(_fbPID.bReady, 'Disabled: bReady should be FALSE');
+
+
+(* ─── Test 8: Fault on Invalid Cycle Time ────────────────────────────────── *)
+THIS^.TEST('Fault_InvalidCycleTime');
+
+_fbPID.bEnable := TRUE;
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fCycleTime_s := 0.0;  (* Invalid! *)
+_fbPID.fSetpoint := 50.0;
+_fbPID.fProcessValue := 40.0;
+_fbPID();
+
+THIS^.AssertFalse(_fbPID.bHealthy, 'Zero cycle time should trigger fault');
+
+
+(* ─── Test 9: Output Within Limits ──────────────────────────────────────── *)
+THIS^.TEST('Output_AlwaysWithinLimits');
+
+_fbPID.bEnable := TRUE;
+_fbPID.bReset := TRUE;
+_fbPID();
+_fbPID.bReset := FALSE;
+_fbPID.fKp := 100.0;       (* Extreme gain *)
+_fbPID.fTi := 0.1;
+_fbPID.fOutputMin := 10.0;
+_fbPID.fOutputMax := 90.0;
+_fbPID.fSetpoint := 100.0;
+_fbPID.fProcessValue := 0.0;
+_fbPID.fCycleTime_s := 0.1;
+_fbPID.fRateLimit := 0.0;
+_fbPID.fDeadband := 0.0;
+
+FOR _i := 1 TO 50 DO
+    _fbPID();
+    THIS^.AssertInRange(_fbPID.fOutput, 10.0, 90.0, 'Output must always be within limits');
+END_FOR
+
+
+M_RunTests := TRUE;

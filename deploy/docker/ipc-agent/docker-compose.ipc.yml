@@ -1,0 +1,72 @@
+# =============================================================================
+# Docker Compose — IPC Agent Services (runs ON each physical IPC)
+# =============================================================================
+# This compose file runs alongside CODESYS on the IPC Linux host.
+# It provides cloud connectivity without modifying the CODESYS runtime.
+#
+# Usage: docker compose -f docker-compose.ipc.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # IPC Agent — Log shipping, metrics, deployment, health
+  # ===========================================================================
+  ipc-agent:
+    build: .
+    container_name: aifactory-ipc-agent
+    restart: unless-stopped
+    environment:
+      - SITE_ID=${SITE_ID:-us-west-01}
+      - IPC_ID=${IPC_ID:-cooling}
+      - IOT_ENDPOINT=${IOT_ENDPOINT}
+      - METRIC_INTERVAL=60
+      - HEARTBEAT_INTERVAL=30
+    volumes:
+      # CODESYS logs (read-only)
+      - /var/log/codesyscontrol.log:/var/log/codesyscontrol.log:ro
+      - /var/log/codesyscontrol_project.log:/var/log/codesyscontrol_project.log:ro
+      # CODESYS project directory (read-write for deployment)
+      - /opt/codesys/project:/opt/codesys/project
+      # Device certificates
+      - ./certs:/opt/ipc-agent/certs:ro
+      # Proc filesystem (for resource monitoring)
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    network_mode: host  # Need host network for IoT Core MQTT
+    pid: host           # Need host PID namespace to find codesyscontrol process
+
+  # ===========================================================================
+  # CloudWatch Agent (AWS official — alternative to custom agent)
+  # ===========================================================================
+  cloudwatch-agent:
+    image: amazon/cloudwatch-agent:latest
+    container_name: aifactory-cw-agent
+    restart: unless-stopped
+    volumes:
+      - ./config/cloudwatch-agent.json:/opt/aws/amazon-cloudwatch-agent/etc/config.json:ro
+      - /var/log:/var/log:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+    network_mode: host
+
+  # ===========================================================================
+  # Node Exporter (Prometheus metrics — for local Grafana if needed)
+  # ===========================================================================
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: aifactory-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    ports:
+      - "9100:9100"
+    network_mode: host

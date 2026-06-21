@@ -1,0 +1,64 @@
+(* =============================================================================
+    ST_CDU_Config — CDU Controller Configuration Parameters
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Groups all tunable parameters for one CDU instance.
+     Loaded from persistent storage at startup. Can be modified at runtime
+     via OPC UA (with appropriate access control).
+   
+   THREAD SAFETY:
+     This struct is written by the Communication_Task (OPC UA parameter
+     changes) and read by the Control_Task. Access is synchronized via
+     atomic struct copy: Communication_Task writes to a staging buffer,
+     Control_Task copies the entire struct at the START of its cycle.
+   ============================================================================= *)
+
+TYPE ST_CDU_Config :
+STRUCT
+    (* --- Temperature Setpoints --- *)
+    fSupplyTempSP        : REAL := 35.0;    (* Supply temperature setpoint [°C] *)
+    fReturnTempMaxSP     : REAL := 50.0;    (* Maximum return temperature [°C] *)
+    fDeltaT_MaxSP        : REAL := 15.0;    (* Maximum delta-T alarm [°C] *)
+    
+    (* --- Pump Limits --- *)
+    fPumpSpeedMin        : REAL := 20.0;    (* Minimum pump speed [%] (cavitation limit) *)
+    fPumpSpeedMax        : REAL := 100.0;   (* Maximum pump speed [%] *)
+    fPumpRampRate        : REAL := 5.0;     (* Pump speed ramp [%/s] *)
+    
+    (* --- Valve Limits --- *)
+    fValvePosMin         : REAL := 0.0;     (* Valve minimum position [%] *)
+    fValvePosMax         : REAL := 100.0;   (* Valve maximum position [%] *)
+    
+    (* --- PID Tuning: Pump Speed Loop --- *)
+    fPump_Kp             : REAL := 2.5;     (* Proportional gain *)
+    fPump_Ti             : REAL := 30.0;    (* Integral time [s] *)
+    fPump_Td             : REAL := 0.0;     (* Derivative time [s] *)
+    
+    (* --- PID Tuning: Valve Position Loop --- *)
+    fValve_Kp            : REAL := 1.8;     (* Proportional gain *)
+    fValve_Ti            : REAL := 45.0;    (* Integral time [s] *)
+    fValve_Td            : REAL := 5.0;     (* Derivative time [s] *)
+    
+    (* --- Feedforward --- *)
+    fFF_Gain             : REAL := 0.015;   (* Feedforward gain [%pump / kW_GPU] *)
+    fFF_GPUBaseline_kW   : REAL := 50.0;    (* GPU idle power baseline [kW] *)
+    
+    (* --- Alarm Thresholds --- *)
+    fAlm_SupplyTempHigh  : REAL := 40.0;    (* Supply temp high alarm [°C] *)
+    fAlm_FlowLowPct      : REAL := 50.0;    (* Low flow alarm [% of design] *)
+    fAlm_PressureHigh    : REAL := 6.0;     (* High pressure alarm [bar] *)
+    fAlm_DeltaTHigh      : REAL := 20.0;    (* High delta-T alarm [°C] *)
+    fDesignFlowRate      : REAL := 400.0;   (* Design flow rate [LPM] *)
+    
+    (* --- Timing --- *)
+    tStartupDelay        : TIME := T#5S;    (* Delay before PID engages after pump start *)
+    tStopRampTime        : TIME := T#30S;   (* Controlled stop ramp duration *)
+    tFaultDelay          : TIME := T#3S;    (* Fault confirmation delay *)
+    
+    (* --- Safety Integration --- *)
+    fGPU_TempTrip        : REAL := 85.0;    (* GPU temp that triggers MAX_COOL [°C] *)
+    fGPU_TempWarn        : REAL := 78.0;    (* GPU temp warning threshold [°C] *)
+END_STRUCT
+END_TYPE

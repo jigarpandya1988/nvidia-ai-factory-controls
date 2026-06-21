@@ -1,0 +1,48 @@
+(* =============================================================================
+    I_SafetyMonitored — Interface for safety-monitored subsystems
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Defines the contract for subsystems that participate in the safety chain.
+     IPC-04 (Safety Systems) queries all I_SafetyMonitored implementors to
+     determine if a safety action (EPO, isolation, etc.) is required.
+   
+   SAFETY PRINCIPLE:
+     - GetSafetyPermit() returning FALSE means the subsystem demands shutdown.
+     - Safety logic uses PESSIMISTIC evaluation: ANY FALSE = trip.
+     - This interface is READ-ONLY from the safety controller's perspective.
+     - The subsystem itself decides when to revoke its permit.
+   
+   RACE CONDITION NOTE:
+     Safety permit is evaluated in the Safety_Task (fastest priority).
+     Implementors MUST ensure the permit flag is written atomically
+     (single BOOL assignment) — no multi-step evaluation visible to reader.
+   ============================================================================= *)
+
+INTERFACE I_SafetyMonitored
+
+(* --- Safety Properties --- *)
+
+PROPERTY bSafetyPermit : BOOL
+(* TRUE = subsystem is safe, operation may continue.
+   FALSE = subsystem demands immediate protective action.
+   
+   CRITICAL: This property MUST return a pre-computed BOOL.
+   Do NOT perform complex logic inside the getter — it runs
+   in the safety task context at highest priority. *)
+GET;
+END_PROPERTY
+
+PROPERTY bHasActiveAlarm : BOOL
+(* TRUE = at least one alarm is active (any severity).
+   Used for annunciation, not for safety decisions. *)
+GET;
+END_PROPERTY
+
+PROPERTY eSafetyState : E_SafetyState
+(* Detailed safety state for diagnostics and HMI display. *)
+GET;
+END_PROPERTY
+
+END_INTERFACE

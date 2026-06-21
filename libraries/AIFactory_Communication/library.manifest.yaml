@@ -1,0 +1,66 @@
+# =============================================================================
+# AIFactory_Communication — Library Manifest
+# NVIDIA AI Factory Controls
+# =============================================================================
+
+name: AIFactory_Communication
+title: "AI Factory Communication Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Comm"
+description: |
+  Multi-protocol data collection, publishing, and peer-to-peer exchange.
+  Supports OPC UA, MQTT (Sparkplug B), Modbus TCP, BACnet/IP, REST/HTTP.
+
+author: "Controls Engineering Team"
+placeholder: "AIFactory Communication"
+
+dependencies:
+  - name: AIFactory_Common
+    version: ">=1.0.0.0"
+
+# Optional CODESYS library dependencies (from CODESYS store)
+codesys_dependencies:
+  - "IoT Libraries - MQTT"          # For FB_Publisher_MQTT / FB_Subscriber_MQTT
+  - "SysSocket"                     # For FB_PeerExchange_UDP
+  - "CmpOPCUAClient"               # For FB_Subscriber_OPCUA
+  # - "BACnet"                      # For BACnet publisher/subscriber (if available)
+
+exports:
+  function_blocks:
+    # Data Engine
+    - FB_DataCollector       # Central publish/subscribe orchestrator
+    # Publishers (I_DataPublisher implementations)
+    - FB_Publisher_OPCUA     # OPC UA symbol server
+    - FB_Publisher_MQTT      # MQTT with Sparkplug B
+    - FB_Publisher_Modbus    # Modbus TCP slave
+    - FB_Publisher_BACnet    # BACnet/IP server objects
+    # Subscribers (I_DataSubscriber implementations)
+    - FB_Subscriber_OPCUA    # OPC UA client
+    - FB_Subscriber_MQTT     # MQTT subscribe
+    - FB_Subscriber_Modbus   # Modbus TCP master polling
+    - FB_Subscriber_BACnet   # BACnet/IP client
+    - FB_Subscriber_REST     # HTTP/REST for DCGM
+    # Peer Exchange
+    - FB_PeerExchange_OPCUA  # IPC-to-IPC via OPC UA
+    - FB_PeerExchange_UDP    # IPC-to-IPC via UDP multicast (fast)
+  
+  interfaces:
+    - I_DataPublisher        # Publisher contract
+    - I_DataSubscriber       # Subscriber contract
+    - I_PeerExchange         # Peer exchange contract
+  
+  enumerations:
+    - E_PublishMode          # Cyclic / OnChange / Hybrid / OnDemand
+    - E_ProtocolType         # Protocol identifiers
+  
+  structures:
+    - ST_DataPoint           # Publishable data point config
+    - ST_Subscription        # Subscription tracking
+    - ST_PeerData            # Inter-IPC exchange packet
+    - ST_ModbusPollRequest   # Modbus polling config
+    - ST_BACnetPollRequest   # BACnet polling config
+    - ST_BACnetCOVSub        # BACnet COV subscription
+  
+  gvls:
+    - GVL_PeerExchange       # Peer data shared memory

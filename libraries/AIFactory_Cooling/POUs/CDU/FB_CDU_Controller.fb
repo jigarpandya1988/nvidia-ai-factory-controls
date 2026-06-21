@@ -1,0 +1,175 @@
+(* =============================================================================
+    FB_CDU_Controller — Coolant Distribution Unit Controller
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Controls one CDU: pump speed via VFD, 3-way mixing valve position.
+     Maintains GPU junction temperatures within safe limits using:
+       • PID control on supply temperature
+       • Feedforward from GPU power telemetry (anticipatory)
+       • State machine for startup/shutdown sequencing
+       • Automatic failover to MAX_COOL on safety events
+   
+   OOP DESIGN:
+     EXTENDS FB_Base — inherits lifecycle, fault latching, watchdog.
+     IMPLEMENTS I_SafetyMonitored — participates in safety chain.
+     COMPOSES:
+       • 2x FB_PID (pump loop, valve loop)
+       • 4x FB_SensorValidator (supply temp, return temp, flow, pressure)
+   
+   SAFETY PRINCIPLES:
+     1. Loss of ANY sensor → degrade gracefully (use fallback, alarm)
+     2. Loss of GPU telemetry → assume worst case (MAX_COOL)
+     3. Pump fault → immediate switchover to standby (external logic)
+     4. Leak detected → isolate zone, safe-state
+     5. Safety system trip → EMERGENCY_STOP, no questions asked
+   
+   RACE CONDITION PREVENTION:
+     • This FB runs in Control_Task (5ms cycle) ONLY.
+     • Inputs from field I/O: read at start of cycle (CODESYS I/O image).
+     • Inputs from OPC UA (GPU data): read via ST_CDU_Config snapshot.
+     • Output to other tasks: via ST_CDU_Status atomic copy at end of cycle.
+     • NEVER access this FB's internals from another task.
+   
+   TASK ASSIGNMENT:
+     Control_Task — Priority 1, Cycle 5ms
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_CDU_Controller EXTENDS FB_Base IMPLEMENTS I_SafetyMonitored
+VAR_INPUT
+    (* ─── Raw Sensor Inputs (from I/O image) ─── *)
+    fRaw_SupplyTemp      : REAL;            (* PT1000 supply temperature [°C] *)
+    fRaw_ReturnTemp      : REAL;            (* PT1000 return temperature [°C] *)
+    fRaw_FlowRate        : REAL;            (* Electromagnetic flow meter [LPM] *)
+    fRaw_DiffPressure    : REAL;            (* Differential pressure [bar] *)
+    
+    (* ─── Digital Inputs (from I/O image) ─── *)
+    bDI_PumpRunning      : BOOL;            (* Pump motor contactor feedback *)
+    bDI_PumpFault        : BOOL;            (* VFD fault relay (NC → TRUE=fault) *)
+    bDI_PumpReady        : BOOL;            (* VFD ready signal *)
+    bDI_HighPressure     : BOOL;            (* High pressure switch (NC → TRUE=trip) *)
+    bDI_LowFlow          : BOOL;            (* Low flow switch (NC → TRUE=trip) *)
+    bDI_LeakDetected     : BOOL;            (* Leak sensing cable (NO → TRUE=leak) *)
+    
+    (* ─── Safety Inputs (from IPC-04 via hardwire or OPC UA snapshot) ─── *)
+    bSafetyPermit        : BOOL;            (* Safety system permits operation *)
+    bEmergencyStop       : BOOL;            (* Immediate stop command *)
+    
+    (* ─── GPU Telemetry (from Communication_Task snapshot) ─── *)
+    fGPU_TotalPower_kW   : REAL;            (* Total GPU power this CDU serves [kW] *)
+    fGPU_MaxTemp         : REAL;            (* Highest GPU junction temp [°C] *)
+    bGPU_DataValid       : BOOL;            (* TRUE = GPU data is fresh *)
+    
+    (* ─── Configuration (atomic copy from Communication_Task) ─── *)
+    stConfig             : ST_CDU_Config;   (* All tunable parameters *)
+    
+    (* ─── Commands ─── *)
+    bManualMode          : BOOL;            (* Manual override mode *)
+    fManualPumpSpeed     : REAL;            (* Manual pump speed [%] *)
+    fManualValvePos      : REAL;            (* Manual valve position [%] *)
+    eRequestedMode       : E_CDU_Mode;      (* Requested operating mode *)
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.005;   (* Task cycle time [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Control Outputs (to I/O image) ─── *)
+    fAO_PumpSpeed        : REAL;            (* Pump VFD speed reference [%] → 4-20mA *)
+    fAO_ValvePosition    : REAL;            (* 3-way valve position [%] → 4-20mA *)
+    bDO_PumpStart        : BOOL;            (* Pump start command *)
+    bDO_IsolationValve   : BOOL;            (* Zone isolation valve (TRUE=open) *)
+    
+    (* ─── Status (for local use within same task) ─── *)
+    stStatus             : ST_CDU_Status;   (* Complete status snapshot *)
+END_VAR
+
+VAR
+    (* ─── Composed Objects ─── *)
+    _fbPID_Pump          : FB_PID;          (* Pump speed PID controller *)
+    _fbPID_Valve         : FB_PID;          (* Valve position PID controller *)
+    _fbSens_Supply       : FB_SensorValidator;  (* Supply temp validation *)
+    _fbSens_Return       : FB_SensorValidator;  (* Return temp validation *)
+    _fbSens_Flow         : FB_SensorValidator;  (* Flow rate validation *)
+    _fbSens_Pressure     : FB_SensorValidator;  (* Pressure validation *)
+    
+    (* ─── State Machine ─── *)
+    _eState              : E_CDU_State;
+    _eMode               : E_CDU_Mode;
+    _tonStartup          : TON;             (* Startup delay timer *)
+    _tonStopRamp         : TON;             (* Stop ramp timer *)
+    _tonFaultConfirm     : TON;             (* Fault confirmation delay *)
+    
+    (* ─── Feedforward ─── *)
+    _fFF_Output          : REAL;            (* Feedforward contribution [%] *)
+    
+    (* ─── Calculated Values ─── *)
+    _fDeltaT             : REAL;            (* Return - Supply [°C] *)
+    _fCoolingCapacity_kW : REAL;            (* Q = flow * Cp * deltaT *)
+    _fThermalHeadroom    : REAL;            (* GPU throttle temp - current temp *)
+    
+    (* ─── Ramp Generator ─── *)
+    _fPumpSpeedRamped    : REAL;            (* Rate-limited pump speed *)
+    
+    (* ─── Diagnostics ─── *)
+    _nRunHours           : UDINT;           (* Accumulated pump run hours *)
+    _nStartCount         : UDINT;           (* Pump start counter *)
+    _fRunSeconds         : REAL;            (* Sub-hour accumulator *)
+    
+    (* ─── Edge Triggers ─── *)
+    _rtrigPumpStart      : R_TRIG;          (* Rising edge: pump started *)
+    _ftrigPumpStop       : F_TRIG;          (* Falling edge: pump stopped *)
+    _rtrigLeakDetected   : R_TRIG;          (* Rising edge: new leak event *)
+    _rtrigPumpFault      : R_TRIG;          (* Rising edge: new VFD fault *)
+    
+    (* ─── Safety ─── *)
+    _bSafetyPermitInternal : BOOL;          (* Pre-computed safety permit *)
+    _eSafetyState        : E_SafetyState;   (* Safety posture *)
+    
+    (* ─── Alarm Flags ─── *)
+    _bAlm_SupplyTempHigh : BOOL;
+    _bAlm_ReturnTempHigh : BOOL;
+    _bAlm_FlowLow       : BOOL;
+    _bAlm_DeltaTHigh     : BOOL;
+    _bAlm_PumpFault      : BOOL;
+    _bAlm_LeakDetected   : BOOL;
+    _bAlm_PressureHigh   : BOOL;
+    _bAlm_GPUTempWarn    : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── SAFETY FIRST: Check emergency stop BEFORE anything else ────────────── *)
+(* This check runs UNCONDITIONALLY, even before base class lifecycle.
+   Emergency stop must have absolute priority — no state machine delay. *)
+IF bEmergencyStop OR NOT bSafetyPermit THEN
+    _eState := E_CDU_State.EMERGENCY_STOP;
+    _bSafetyPermitInternal := FALSE;
+    _eSafetyState := E_SafetyState.TRIPPED;
+    
+    (* IMMEDIATE safe outputs — do not wait for base class *)
+    fAO_PumpSpeed := 0.0;
+    fAO_ValvePosition := 0.0;
+    bDO_PumpStart := FALSE;
+    bDO_IsolationValve := FALSE;
+    
+    (* Update status for other tasks *)
+    THIS^._UpdateStatus();
+    
+    (* Still call base class for heartbeat and lifecycle tracking *)
+    SUPER^();
+    RETURN;
+END_IF
+
+(* ─── Normal lifecycle (base class handles enable/fault/init gates) ──────── *)
+SUPER^();

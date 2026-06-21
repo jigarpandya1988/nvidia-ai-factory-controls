@@ -1,0 +1,35 @@
+# =============================================================================
+# IPC-01 Power Control — Project Manifest
+# =============================================================================
+
+name: IPC-01_PowerControl
+title: "AI Factory IPC-01 — Power Distribution"
+version: 1.0.0.0
+target:
+  hardware: "Beckhoff CX5140"
+  os: "Debian Linux (PREEMPT_RT)"
+  runtime: "CODESYS V3.5 SP20"
+
+library_references:
+  - name: AIFactory_Common
+    version: "1.0.0.0"
+  - name: AIFactory_Communication
+    version: "1.0.0.0"
+  - name: AIFactory_Power
+    version: "1.0.0.0"
+
+tasks:
+  - name: Control_Task
+    priority: 1
+    cycle_ms: 10
+    programs: [PRG_Power_Main]
+  - name: Communication_Task
+    priority: 5
+    cycle_ms: 100
+    programs: [PRG_Communication]
+
+project_files:
+  programs:
+    - POUs/PRG_Power_Main.pou
+  gvls:
+    - GVLs/GVL_Power.gvl

@@ -1,0 +1,149 @@
+(* =============================================================================
+    FB_PeerExchange_OPCUA.M_Execute — Peer Data Exchange Cycle
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   EXECUTION ORDER:
+     1. Update my outbound data (stMyData) for peers to read
+     2. Check each peer's received data for freshness
+     3. Detect peer loss / recovery (edge triggers)
+     4. Compute aggregate safety state (pessimistic)
+     5. Detect sequence gaps (missed packets)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    bPeerWasAlive        : BOOL;
+    nExpectedSeq         : UDINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 1: UPDATE MY OUTBOUND DATA
+   This struct is exposed via OPC UA server. Peers read it directly.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_nMySequence := _nMySequence + 1;
+stMyData.nSequence := _nMySequence;
+stMyData.nTimestamp_ms := TIME_TO_UDINT(TIME());  (* System time *)
+stMyData.nSourceIPC := nMyIPC_ID;
+stMyData.eLifecycle := eLifecycle;
+stMyData.nHeartbeat := nHeartbeat;
+stMyData.bHealthy := bHealthy;
+
+(* NOTE: Safety-critical fields (bSafetyPermit, bEmergencyStop, etc.)
+   and fPrimaryValue fields are set by the calling program BEFORE
+   this FB executes. They're inputs populated from GVL_CrossTask. *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 2: CHECK PEER FRESHNESS
+   OPC UA client subscriptions deliver data asynchronously.
+   We check if the received data is still fresh (within timeout).
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+bAllPeersSafetyOK := TRUE;
+bAnyPeerEmergency := FALSE;
+bAnyPeerDead := FALSE;
+
+FOR _i := 1 TO 4 DO
+    (* Skip self *)
+    IF _i = nMyIPC_ID THEN
+        abPeerAlive[_i] := TRUE;
+        CONTINUE;
+    END_IF
+    
+    (* Accumulate time since last update *)
+    _anTimeSinceUpdate[_i] := _anTimeSinceUpdate[_i] + REAL_TO_UDINT(fCycleTime_s * 1000.0);
+    
+    (* Check if peer data is fresh (sequence changed since last check) *)
+    IF astPeerData[_i].nSequence <> _anLastSequence[_i] THEN
+        (* Fresh data received *)
+        _anTimeSinceUpdate[_i] := 0;
+        
+        (* Detect gaps in sequence (missed packets) *)
+        nExpectedSeq := _anLastSequence[_i] + 1;
+        IF astPeerData[_i].nSequence > nExpectedSeq AND _anLastSequence[_i] > 0 THEN
+            _anMissedPackets[_i] := _anMissedPackets[_i] 
+                + (astPeerData[_i].nSequence - nExpectedSeq);
+        END_IF
+        
+        _anLastSequence[_i] := astPeerData[_i].nSequence;
+    END_IF
+    
+    (* Determine alive status *)
+    bPeerWasAlive := abPeerAlive[_i];
+    abPeerAlive[_i] := (_anTimeSinceUpdate[_i] < nTimeout_ms);
+    
+    (* Edge detection: peer lost / found *)
+    _artrigPeerLost[_i](CLK := NOT abPeerAlive[_i]);
+    _artrigPeerFound[_i](CLK := abPeerAlive[_i]);
+    
+    IF NOT abPeerAlive[_i] THEN
+        bAnyPeerDead := TRUE;
+    END_IF
+END_FOR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 3: AGGREGATE SAFETY STATE (PESSIMISTIC)
+   
+   Safety logic: if ANY peer says NO or is DEAD → assume unsafe.
+   This is the fail-safe principle applied to inter-IPC communication.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FOR _i := 1 TO 4 DO
+    IF _i = nMyIPC_ID THEN
+        CONTINUE;
+    END_IF
+    
+    IF abPeerAlive[_i] THEN
+        (* Peer is alive — trust its data *)
+        IF NOT astPeerData[_i].bSafetyPermit THEN
+            bAllPeersSafetyOK := FALSE;
+        END_IF
+        IF astPeerData[_i].bEmergencyStop THEN
+            bAnyPeerEmergency := TRUE;
+        END_IF
+    ELSE
+        (* Peer is DEAD — ASSUME WORST CASE for safety *)
+        (* This is a design choice: dead peer = no permit.
+           Alternative: use last-known value with timeout degradation.
+           For SIL 2: pessimistic assumption is required. *)
+        bAllPeersSafetyOK := FALSE;
+    END_IF
+END_FOR
+
+(* Edge trigger on emergency *)
+_rtrigEmergency(CLK := bAnyPeerEmergency);
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 4: CALCULATE LATENCY
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FOR _i := 1 TO 4 DO
+    IF _i = nMyIPC_ID THEN
+        anPeerLatency_us[_i] := 0;
+        CONTINUE;
+    END_IF
+    
+    IF abPeerAlive[_i] THEN
+        (* Approximate latency from timestamp difference *)
+        (* More accurate: use PTP-synchronized time across IPCs *)
+        anPeerLatency_us[_i] := _anTimeSinceUpdate[_i] * 1000;  (* ms → us *)
+    ELSE
+        anPeerLatency_us[_i] := 16#FFFFFFFF;  (* Max = dead *)
+    END_IF
+END_FOR
+
+M_Execute := TRUE;

@@ -1,0 +1,105 @@
+(* =============================================================================
+    FB_PID — Industrial PID Controller with Safety Features
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Production-grade PID controller for process control loops.
+     Used by cooling (pump speed, valve position) and power (setpoints).
+   
+   FEATURES:
+     • Anti-windup via integrator clamping + back-calculation
+     • Derivative on PV (avoids setpoint kick)
+     • Filtered derivative (noise rejection)
+     • Bumpless manual↔auto transfer
+     • Output rate limiting (prevents water hammer, VFD stress)
+     • Setpoint weighting on P-term
+     • Configurable deadband
+   
+   SAFETY:
+     • Extends FB_Base: inherits enable/fault/safe-state lifecycle
+     • Safe-state: output = 0.0 (or configured safe output)
+     • Input validation: rejects NaN/Inf setpoints and PV
+     • Cycle time validation: rejects zero or negative
+   
+   RACE CONDITION PREVENTION:
+     • Single-task ownership. Never share across tasks.
+     • All parameters are VAR_INPUT (written by owner task only).
+     • Output is a single REAL — atomically readable by other tasks
+       if needed (but prefer ST_* snapshot pattern).
+   
+   TUNING GUIDE:
+     Kp = Controller gain (higher = more aggressive)
+     Ti = Integral time [s] (lower = faster integral action; 0 = off)
+     Td = Derivative time [s] (higher = more damping; 0 = off)
+     Start with: Kp=1.0, Ti=60.0, Td=0.0, then tune from there.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_PID EXTENDS FB_Base
+VAR_INPUT
+    (* --- Process Variables --- *)
+    fSetpoint            : REAL;            (* Desired value [eng. units] *)
+    fProcessValue        : REAL;            (* Measured value [eng. units] *)
+    
+    (* --- Tuning Parameters --- *)
+    fKp                  : REAL := 1.0;     (* Proportional gain *)
+    fTi                  : REAL := 60.0;    (* Integral time [s]; 0=disabled *)
+    fTd                  : REAL := 0.0;     (* Derivative time [s]; 0=disabled *)
+    fDerivFilterN        : REAL := 10.0;    (* Derivative filter coeff (2..20) *)
+    fSPWeight            : REAL := 1.0;     (* Setpoint weight for P-term [0..1] *)
+    
+    (* --- Output Limits --- *)
+    fOutputMin           : REAL := 0.0;     (* Minimum output *)
+    fOutputMax           : REAL := 100.0;   (* Maximum output *)
+    fRateLimit           : REAL := 0.0;     (* Max output change [units/s]; 0=off *)
+    
+    (* --- Deadband --- *)
+    fDeadband            : REAL := 0.0;     (* Error deadband [eng. units] *)
+    
+    (* --- Manual Mode --- *)
+    bManualMode          : BOOL;            (* TRUE = manual output override *)
+    fManualOutput        : REAL;            (* Manual output value *)
+    
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.005;   (* Task cycle time [seconds] *)
+    
+    (* --- Safe Output (used in safe-state) --- *)
+    fSafeOutput          : REAL := 0.0;     (* Output value when disabled/faulted *)
+END_VAR
+
+VAR_OUTPUT
+    (* --- Control Output --- *)
+    fOutput              : REAL;            (* Controller output [OutputMin..OutputMax] *)
+    
+    (* --- Diagnostics --- *)
+    fError               : REAL;            (* Current error: SP - PV *)
+    fP_Term              : REAL;            (* Proportional contribution *)
+    fI_Term              : REAL;            (* Integral contribution *)
+    fD_Term              : REAL;            (* Derivative contribution *)
+    bAtUpperLimit        : BOOL;            (* Output clamped at max *)
+    bAtLowerLimit        : BOOL;            (* Output clamped at min *)
+    bIsManual            : BOOL;            (* Currently in manual mode *)
+END_VAR
+
+VAR
+    (* --- Internal State --- *)
+    _fIntegral           : REAL;            (* Integral accumulator *)
+    _fDerivState         : REAL;            (* Derivative filter state *)
+    _fPV_Prev            : REAL;            (* Previous PV for derivative *)
+    _fOutputPrev         : REAL;            (* Previous output for rate limit *)
+    _bWindupHigh         : BOOL;            (* Positive saturation detected *)
+    _bWindupLow          : BOOL;            (* Negative saturation detected *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Lifecycle managed by FB_Base. Actual PID logic in M_Execute. *)
+SUPER^();

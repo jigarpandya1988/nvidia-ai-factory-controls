@@ -1,0 +1,95 @@
+(* =============================================================================
+    PRG_TestRunner — Executes All Test Suites
+    Test Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   USAGE:
+     1. Add this program to a test task (100ms cycle)
+     2. Set bRunAllTests := TRUE (via online change or visualization)
+     3. Check outputs for results
+     4. For CI/CD: CODESYS Automation Server runs this automatically
+   
+   TASK: Test_Task — Priority 10, Cycle 100ms (low priority, non-real-time)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_TestRunner
+VAR
+    (* --- Command --- *)
+    bRunAllTests         : BOOL;            (* Rising edge starts all tests *)
+    
+    (* --- Test Suites --- *)
+    fbTest_PID           : TEST_FB_PID;
+    fbTest_Sensor        : TEST_FB_SensorValidator;
+    fbTest_EPO           : TEST_FB_EPO;
+    fbTest_CDU           : TEST_FB_CDU_Controller;
+    fbTest_DataCollector : TEST_FB_DataCollector;
+    
+    (* --- Aggregate Results --- *)
+    bAllDone             : BOOL;
+    bAllPassed           : BOOL;
+    nTotalTests          : UINT;
+    nTotalPassed         : UINT;
+    nTotalFailed         : UINT;
+    sReport              : STRING(255);
+    
+    (* --- Edge Trigger --- *)
+    _rtrigRun            : R_TRIG;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_rtrigRun(CLK := bRunAllTests);
+
+IF _rtrigRun.Q THEN
+    (* Run all test suites *)
+    fbTest_PID(bRunTests := TRUE);
+    fbTest_Sensor(bRunTests := TRUE);
+    fbTest_EPO(bRunTests := TRUE);
+    fbTest_CDU(bRunTests := TRUE);
+    fbTest_DataCollector(bRunTests := TRUE);
+    
+    (* Aggregate results *)
+    nTotalTests := fbTest_PID.nTestsRun 
+                 + fbTest_Sensor.nTestsRun
+                 + fbTest_EPO.nTestsRun
+                 + fbTest_CDU.nTestsRun
+                 + fbTest_DataCollector.nTestsRun;
+    
+    nTotalPassed := fbTest_PID.nTestsPassed
+                  + fbTest_Sensor.nTestsPassed
+                  + fbTest_EPO.nTestsPassed
+                  + fbTest_CDU.nTestsPassed
+                  + fbTest_DataCollector.nTestsPassed;
+    
+    nTotalFailed := fbTest_PID.nTestsFailed
+                  + fbTest_Sensor.nTestsFailed
+                  + fbTest_EPO.nTestsFailed
+                  + fbTest_CDU.nTestsFailed
+                  + fbTest_DataCollector.nTestsFailed;
+    
+    bAllPassed := (nTotalFailed = 0);
+    bAllDone := TRUE;
+    
+    IF bAllPassed THEN
+        sReport := CONCAT(CONCAT('ALL PASSED: ', UINT_TO_STRING(nTotalTests)), ' tests');
+    ELSE
+        sReport := CONCAT(CONCAT(CONCAT(
+            UINT_TO_STRING(nTotalFailed), ' FAILED / '),
+            UINT_TO_STRING(nTotalTests)), ' tests');
+    END_IF
+END_IF
+
+(* Reset trigger *)
+fbTest_PID(bRunTests := FALSE);
+fbTest_Sensor(bRunTests := FALSE);
+fbTest_EPO(bRunTests := FALSE);
+fbTest_CDU(bRunTests := FALSE);
+fbTest_DataCollector(bRunTests := FALSE);

@@ -1,0 +1,39 @@
+(* =============================================================================
+    FB_Base.M_Diagnose — Virtual: Periodic Self-Diagnostics
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every _nDiagInterval scans (default: 1000 scans ≈ 5s at 5ms cycle).
+     Only called while in RUNNING state.
+   
+   OVERRIDE IN DERIVED FB TO:
+     • Validate sensor readings are within physical range
+     • Check communication timeouts
+     • Verify internal consistency (e.g., flow vs. pressure correlation)
+     • Calculate predictive maintenance metrics (run hours, start counts)
+     • Detect slow-drift faults that per-scan checks would miss
+   
+   IF FAULT DETECTED:
+     Call THIS^.M_SetFault('description') to latch the fault.
+     FB will enter safe-state on the next scan cycle.
+   
+   PERFORMANCE NOTE:
+     This runs at reduced frequency to avoid CPU overhead from expensive
+     checks. Keep execution time reasonable (< 1ms recommended).
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Diagnose : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base implementation: no-op. Derived classes override. *)
+M_Diagnose := TRUE;

@@ -1,0 +1,27 @@
+# =============================================================================
+# AIFactory_Power — Library Manifest
+# =============================================================================
+
+name: AIFactory_Power
+title: "AI Factory Power Distribution Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Power"
+description: |
+  Power distribution monitoring, PUE calculation, UPS management,
+  ATS control, and energy metering for AI factories.
+
+dependencies:
+  - name: AIFactory_Common
+    version: ">=1.0.0.0"
+
+exports:
+  function_blocks:
+    - FB_PowerDistribution   # Main power monitoring and control
+  
+  enumerations:
+    - E_ATS_State            # Automatic Transfer Switch states
+    - E_PowerSource          # Power source identifiers
+  
+  structures:
+    - ST_PowerStatus         # Power system status snapshot

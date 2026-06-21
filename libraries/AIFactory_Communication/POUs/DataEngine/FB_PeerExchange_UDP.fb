@@ -1,0 +1,150 @@
+(* =============================================================================
+    FB_PeerExchange_UDP — UDP Multicast Fast Peer Exchange
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_PeerExchange using raw UDP multicast for minimum latency.
+     All IPCs join the same multicast group. Each broadcasts its ST_PeerData
+     every control cycle. All peers receive simultaneously.
+   
+   LATENCY:
+     UDP multicast on switched Ethernet: < 1ms (typically 100-500µs).
+     This is 10-50x faster than OPC UA subscriptions.
+   
+   WHEN TO USE:
+     • Safety permit propagation (hardwired is primary, UDP is backup)
+     • Real-time load coordination between power and cooling
+     • Sub-5ms response requirements
+   
+   WHEN NOT TO USE:
+     • Across network segments (multicast doesn't cross routers by default)
+     • When encryption is required (UDP multicast is unencrypted)
+     • For large data payloads (keep to ST_PeerData size ~128 bytes)
+   
+   MULTICAST SETUP:
+     Group: 239.192.100.1 (link-local multicast, stays on control VLAN)
+     Port: 50100
+     All IPCs join this group on their control network interface.
+   
+   PACKET FORMAT:
+     [4 bytes: magic 0xAF5C] [2 bytes: length] [ST_PeerData] [2 bytes: CRC16]
+   
+   FAIL-SAFE:
+     If no packet received from a peer within nTimeout_ms → peer is DEAD.
+     Dead peer assumed to have revoked safety permit (pessimistic).
+   
+   REQUIRES:
+     CODESYS SysSocket library for raw UDP socket operations.
+   
+   REDUNDANCY:
+     Run BOTH FB_PeerExchange_OPCUA and FB_PeerExchange_UDP.
+     Control logic uses the FRESHEST data from either source.
+     If UDP fails: fall back to OPC UA (higher latency but still works).
+     If OPC UA fails: fall back to UDP.
+     If BOTH fail: hardwired safety signals are the last line of defense.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_PeerExchange_UDP EXTENDS FB_Base IMPLEMENTS I_PeerExchange
+VAR_INPUT
+    (* --- Network Configuration --- *)
+    sMulticastGroup      : STRING(16) := '239.192.100.1';
+    nPort                : UINT := 50100;
+    sLocalInterface      : STRING(16) := '192.168.100.0';  (* Bind to control NIC *)
+    
+    (* --- Identity --- *)
+    nMyIPC_ID            : USINT := 2;
+    
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.005;
+    nTimeout_ms          : UDINT := 20;     (* 20ms = 4 missed packets at 5ms *)
+END_VAR
+
+VAR_OUTPUT
+    (* --- Received Peer Data --- *)
+    astPeerData          : ARRAY[1..4] OF ST_PeerData;
+    abPeerAlive          : ARRAY[1..4] OF BOOL;
+    anPeerLatency_us     : ARRAY[1..4] OF UDINT;
+    
+    (* --- Aggregate Safety --- *)
+    bAllPeersSafetyOK    : BOOL;
+    bAnyPeerEmergency    : BOOL;
+    bAnyPeerDead         : BOOL;
+    
+    (* --- My Published Data --- *)
+    stMyData             : ST_PeerData;
+    
+    (* --- Network Stats --- *)
+    nPacketsSent         : UDINT;
+    nPacketsReceived     : UDINT;
+    nPacketsDropped      : UDINT;           (* CRC errors or invalid *)
+    nSequenceGaps        : UDINT;           (* Missed packets total *)
+END_VAR
+
+VAR
+    (* --- Socket Handle --- *)
+    _hSocket             : UDINT;           (* SysSocket handle *)
+    _bSocketOpen         : BOOL;
+    
+    (* --- Per-Peer Tracking --- *)
+    _anTimeSinceUpdate   : ARRAY[1..4] OF UDINT;
+    _anLastSequence      : ARRAY[1..4] OF UDINT;
+    
+    (* --- Transmit Buffer --- *)
+    _abTxBuffer          : ARRAY[0..255] OF BYTE;
+    _nTxSize             : UINT;
+    
+    (* --- Receive Buffer --- *)
+    _abRxBuffer          : ARRAY[0..255] OF BYTE;
+    _nRxSize             : UINT;
+    
+    (* --- Sequence --- *)
+    _nMySequence         : UDINT;
+    
+    (* --- Edge Triggers --- *)
+    _artrigPeerLost      : ARRAY[1..4] OF R_TRIG;
+    _rtrigEmergency      : R_TRIG;
+    
+    (* --- CRC --- *)
+    _nCRC                : WORD;
+    
+    (* --- Loop --- *)
+    _i                   : USINT;
+END_VAR
+
+VAR CONSTANT
+    C_MAGIC              : DWORD := 16#AF5C0000;  (* Packet magic number *)
+    C_MAX_PACKET         : UINT := 200;            (* Max packet size *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* In production with CODESYS SysSocket library:
+   
+   1. M_Initialize: 
+      - Open UDP socket
+      - Join multicast group
+      - Set socket to non-blocking
+   
+   2. M_Execute (every 5ms cycle):
+      a) SEND: serialize stMyData → _abTxBuffer, append CRC, sendto multicast
+      b) RECEIVE: recvfrom (non-blocking), parse, validate CRC, update astPeerData
+      c) TIMEOUT: check per-peer freshness, mark dead if stale
+      d) SAFETY: compute aggregate safety state (same logic as OPCUA version)
+   
+   3. M_SafeState:
+      - Close socket
+      - Mark all peers dead
+      - Assume worst-case safety
+*)
+
+SUPER^();

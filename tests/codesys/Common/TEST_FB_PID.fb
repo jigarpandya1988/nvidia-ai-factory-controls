@@ -1,0 +1,34 @@
+(* =============================================================================
+    TEST_FB_PID — Unit Tests for PID Controller
+    Test Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   Tests:
+     1. Proportional: output proportional to error
+     2. Integral: output accumulates over time
+     3. Anti-windup: integrator stops at output limits
+     4. Bumpless transfer: no output jump on manual→auto switch
+     5. Rate limiting: output change constrained
+     6. Deadband: no action within deadband
+     7. Safe state: output goes to safe value when disabled
+     8. Derivative: responds to PV rate of change
+     9. Input validation: faults on invalid cycle time
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK TEST_FB_PID EXTENDS FB_TestSuite
+VAR
+    _fbPID               : FB_PID;
+    _i                   : INT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+SUPER^();

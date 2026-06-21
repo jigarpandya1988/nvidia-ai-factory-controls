@@ -1,0 +1,92 @@
+(* =============================================================================
+    FB_AlarmManager.M_RaiseAlarm — Create or Activate an Alarm
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Creates a new alarm record or re-activates an existing one.
+     If the alarm ID already exists in the buffer and is inactive,
+     it is re-activated with updated timestamp and occurrence count.
+     If not found, a new record is written at the next buffer position.
+   
+   PARAMETERS:
+     nID        — Unique alarm identifier
+     eSeverity  — Alarm severity class
+     sSource    — Originating device/subsystem name
+     sMessage   — Human-readable alarm description
+   
+   RETURNS:
+     TRUE if alarm was successfully raised.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_RaiseAlarm : BOOL
+VAR_INPUT
+    nID              : UDINT;
+    eSeverity        : E_AlarmSeverity;
+    sSource          : STRING(64);
+    sMessage         : STRING(255);
+END_VAR
+VAR
+    _idx             : UDINT;
+    _bFound          : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_bFound := FALSE;
+
+(* ─── Search for existing alarm with this ID ────────────────────────────────── *)
+FOR _idx := 1 TO C_BUFFER_SIZE DO
+    IF _idx <= _nBufferCount THEN
+        IF _astBuffer[_idx].nID = nID THEN
+            (* Found existing record — re-activate *)
+            _astBuffer[_idx].bActive := TRUE;
+            _astBuffer[_idx].eSeverity := eSeverity;
+            _astBuffer[_idx].sSource := sSource;
+            _astBuffer[_idx].sMessage := sMessage;
+            _astBuffer[_idx].dtRaised := DT#1970-01-01-00:00:00;  (* Placeholder — set by caller or RTC *)
+            _astBuffer[_idx].nOccurrenceCount := _astBuffer[_idx].nOccurrenceCount + 1;
+            _bFound := TRUE;
+            EXIT;
+        END_IF
+    END_IF
+END_FOR
+
+(* ─── Not found: create new record at write position ────────────────────────── *)
+IF NOT _bFound THEN
+    _astBuffer[_nWriteIndex].nID := nID;
+    _astBuffer[_nWriteIndex].eSeverity := eSeverity;
+    _astBuffer[_nWriteIndex].sSource := sSource;
+    _astBuffer[_nWriteIndex].sMessage := sMessage;
+    _astBuffer[_nWriteIndex].bActive := TRUE;
+    _astBuffer[_nWriteIndex].bAcknowledged := FALSE;
+    _astBuffer[_nWriteIndex].bLatched := FALSE;
+    _astBuffer[_nWriteIndex].dtRaised := DT#1970-01-01-00:00:00;
+    _astBuffer[_nWriteIndex].dtCleared := DT#1970-01-01-00:00:00;
+    _astBuffer[_nWriteIndex].dtAcknowledged := DT#1970-01-01-00:00:00;
+    _astBuffer[_nWriteIndex].nOccurrenceCount := 1;
+    
+    (* Advance write index (circular) *)
+    _nWriteIndex := _nWriteIndex + 1;
+    IF _nWriteIndex > C_BUFFER_SIZE THEN
+        _nWriteIndex := 1;
+    END_IF
+    
+    (* Track buffer fill level *)
+    IF _nBufferCount < C_BUFFER_SIZE THEN
+        _nBufferCount := _nBufferCount + 1;
+    END_IF
+END_IF
+
+(* Signal raise event for edge detection *)
+_bRaiseEvent := TRUE;
+
+M_RaiseAlarm := TRUE;

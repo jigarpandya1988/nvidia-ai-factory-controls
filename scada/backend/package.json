@@ -1,0 +1,25 @@
+{
+  "name": "aifactory-scada-backend",
+  "version": "1.0.0",
+  "description": "SCADA backend — NATS proxy, WebSocket, REST API",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/websocket": "^10.0.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/static": "^7.0.0",
+    "nats": "^2.19.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

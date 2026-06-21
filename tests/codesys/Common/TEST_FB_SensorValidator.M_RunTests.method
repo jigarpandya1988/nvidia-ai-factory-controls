@@ -1,0 +1,157 @@
+(* =============================================================================
+    TEST_FB_SensorValidator.M_RunTests
+   ============================================================================= *)
+
+METHOD M_RunTests : BOOL
+
+sSuiteName := 'TEST_FB_SensorValidator';
+
+
+(* ─── Test 1: Valid Input Passes Through ─────────────────────────────────── *)
+THIS^.TEST('ValidInput_PassesThrough');
+
+_fbSensor.bEnable := TRUE;
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.fRangeLow := 0.0;
+_fbSensor.fRangeHigh := 100.0;
+_fbSensor.fMaxRateOfChange := 50.0;
+_fbSensor.fFallbackValue := -1.0;
+_fbSensor.fCycleTime_s := 0.005;
+_fbSensor.fRawInput := 35.0;
+
+(* Run several scans to pass filter *)
+FOR _i := 1 TO 20 DO
+    _fbSensor();
+END_FOR
+
+THIS^.AssertTrue(_fbSensor.stOutput.bValid, 'Valid input should produce bValid=TRUE');
+THIS^.AssertEquals_REAL(35.0, _fbSensor.stOutput.fValue, 1.0, 'Output should be near input');
+THIS^.AssertFalse(_fbSensor.bAlm_OutOfRange, 'No range alarm for valid input');
+
+
+(* ─── Test 2: Out-of-Range Detected ──────────────────────────────────────── *)
+THIS^.TEST('OutOfRange_DetectedAndAlarmed');
+
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.fRangeLow := 0.0;
+_fbSensor.fRangeHigh := 100.0;
+_fbSensor.fRawInput := 150.0;  (* Above range! *)
+
+FOR _i := 1 TO 20 DO
+    _fbSensor();
+END_FOR
+
+THIS^.AssertTrue(_fbSensor.bAlm_OutOfRange, 'Out-of-range should trigger alarm');
+
+
+(* ─── Test 3: Rate-of-Change Spike Rejected ──────────────────────────────── *)
+THIS^.TEST('RateOfChange_SpikeRejected');
+
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.fMaxRateOfChange := 10.0;  (* Max 10 units/s *)
+_fbSensor.fRawInput := 30.0;
+_fbSensor.fCycleTime_s := 0.1;
+
+(* Establish baseline *)
+FOR _i := 1 TO 5 DO
+    _fbSensor();
+END_FOR
+
+(* Sudden spike: 30 → 80 in one scan = 500 units/s >> 10 limit *)
+_fbSensor.fRawInput := 80.0;
+_fbSensor();
+
+THIS^.AssertTrue(_fbSensor.bAlm_RateExceeded, 'Spike should trigger rate alarm');
+
+
+(* ─── Test 4: Redundancy Disagreement ────────────────────────────────────── *)
+THIS^.TEST('Redundancy_DisagreementDetected');
+
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.bUseRedundancy := TRUE;
+_fbSensor.fRedundancyTolerance := 2.0;
+_fbSensor.fRawInput := 35.0;
+_fbSensor.fRawInput_Redundant := 45.0;  (* 10°C difference! > 2°C tolerance *)
+
+FOR _i := 1 TO 5 DO
+    _fbSensor();
+END_FOR
+
+THIS^.AssertTrue(_fbSensor.bAlm_RedundancyFault, 'Sensor disagreement should alarm');
+
+
+(* ─── Test 5: Frozen Signal Detection ────────────────────────────────────── *)
+THIS^.TEST('FrozenSignal_Detected');
+
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.bUseRedundancy := FALSE;
+_fbSensor.fFrozenTimeout_s := 1.0;  (* Short timeout for test *)
+_fbSensor.fRawInput := 50.0;
+_fbSensor.fCycleTime_s := 0.1;
+
+(* Run 15 scans (1.5 seconds) with no change *)
+FOR _i := 1 TO 15 DO
+    _fbSensor();
+END_FOR
+
+THIS^.AssertTrue(_fbSensor.bAlm_Frozen, 'Frozen signal should be detected after timeout');
+
+
+(* ─── Test 6: Safe State Marks Invalid ───────────────────────────────────── *)
+THIS^.TEST('SafeState_MarksInvalid');
+
+_fbSensor.bEnable := TRUE;
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.fRawInput := 40.0;
+_fbSensor.fFallbackValue := -99.0;
+FOR _i := 1 TO 5 DO
+    _fbSensor();
+END_FOR
+
+(* Disable *)
+_fbSensor.bEnable := FALSE;
+_fbSensor();
+
+THIS^.AssertFalse(_fbSensor.stOutput.bValid, 'Disabled: output should be invalid');
+THIS^.AssertEquals_REAL(-99.0, _fbSensor.stOutput.fValue, 0.01, 'Disabled: should use fallback');
+
+
+(* ─── Test 7: Filter Smooths Input ──────────────────────────────────────── *)
+THIS^.TEST('Filter_SmoothsNoise');
+
+_fbSensor.bEnable := TRUE;
+_fbSensor.bReset := TRUE;
+_fbSensor();
+_fbSensor.bReset := FALSE;
+_fbSensor.fFilterTimeConst := 1.0;  (* 1 second filter *)
+_fbSensor.fMaxRateOfChange := 100.0;  (* Allow fast changes for this test *)
+_fbSensor.fCycleTime_s := 0.1;
+
+(* Step input: 0 → 50 *)
+_fbSensor.fRawInput := 50.0;
+_fbSensor();
+
+(* After one scan, filtered output should NOT be at 50 yet (filter lag) *)
+THIS^.AssertLess(_fbSensor.stOutput.fValue, 45.0, 'Filter should lag behind step input');
+
+(* After many scans, should approach 50 *)
+FOR _i := 1 TO 50 DO
+    _fbSensor();
+END_FOR
+
+THIS^.AssertEquals_REAL(50.0, _fbSensor.stOutput.fValue, 1.0, 'Filter should settle to input');
+
+
+M_RunTests := TRUE;

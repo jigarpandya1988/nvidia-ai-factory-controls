@@ -1,0 +1,86 @@
+(* =============================================================================
+    FB_Watchdog — External Watchdog Kick/Monitor
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Monitors an external heartbeat counter from another task or IPC.
+     Detects if the heartbeat stops incrementing (stale) and reports
+     a timeout condition.
+   
+   BEHAVIOR:
+     - Compares current nExternalHeartbeat with stored previous value
+     - If changed: resets timeout accumulator, bAlive=TRUE
+     - If unchanged: accumulates time, triggers bTimeout after nTimeout_ms
+     - R_TRIG on bTimeout transition for one-shot fault notification
+   
+   USE CASES:
+     - Control_Task monitoring Safety_Task heartbeat
+     - Edge gateway monitoring IPC application heartbeat
+     - Any cross-task/cross-IPC liveness check
+   
+   DESIGN:
+     Simple utility FB — does NOT extend FB_Base.
+     Lightweight, composable, no lifecycle overhead.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Watchdog
+VAR_INPUT
+    nExternalHeartbeat   : UDINT;           (* External heartbeat counter to monitor *)
+    nTimeout_ms          : UDINT := 1000;   (* Max time without change [ms] *)
+    fCycleTime_s         : REAL := 0.005;   (* This task's cycle time [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    bAlive               : BOOL;            (* TRUE if heartbeat is changing *)
+    bTimeout             : BOOL;            (* TRUE if heartbeat stale beyond timeout *)
+END_VAR
+
+VAR
+    _nPrevHeartbeat      : UDINT;           (* Previous scan's heartbeat value *)
+    _fTimeSinceChange    : REAL;            (* Accumulated time since last change [s] *)
+    _fTimeout_s          : REAL;            (* Timeout converted to seconds *)
+    _rtrigTimeout        : R_TRIG;          (* Rising edge on timeout for one-shot *)
+    _bFirstScan          : BOOL := TRUE;    (* Guards first-scan initialization *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── First scan: initialize previous value ──────────────────────────────────── *)
+IF _bFirstScan THEN
+    _nPrevHeartbeat := nExternalHeartbeat;
+    _fTimeSinceChange := 0.0;
+    _bFirstScan := FALSE;
+END_IF
+
+(* ─── Convert timeout to seconds ─────────────────────────────────────────────── *)
+_fTimeout_s := UDINT_TO_REAL(nTimeout_ms) / 1000.0;
+
+(* ─── Compare heartbeat with previous value ───────────────────────────────────── *)
+IF nExternalHeartbeat <> _nPrevHeartbeat THEN
+    (* Heartbeat changed — external task is alive *)
+    _fTimeSinceChange := 0.0;
+    bAlive := TRUE;
+    bTimeout := FALSE;
+    _nPrevHeartbeat := nExternalHeartbeat;
+ELSE
+    (* Heartbeat unchanged — accumulate time *)
+    _fTimeSinceChange := _fTimeSinceChange + fCycleTime_s;
+    
+    (* Check timeout *)
+    IF _fTimeSinceChange >= _fTimeout_s THEN
+        bAlive := FALSE;
+        bTimeout := TRUE;
+    END_IF
+END_IF
+
+(* ─── R_TRIG for one-shot timeout notification ───────────────────────────────── *)
+_rtrigTimeout(CLK := bTimeout);

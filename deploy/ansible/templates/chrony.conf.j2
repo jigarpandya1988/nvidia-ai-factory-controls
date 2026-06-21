@@ -1,0 +1,27 @@
+# Chrony NTP/PTP configuration for CODESYS IPC
+# Managed by Ansible — do not edit manually
+#
+# Primary time source: local NTP server on control network
+server {{ ntp_server }} iburst prefer
+
+# Fallback public NTP pools
+pool ntp.ubuntu.com iburst maxsources 4
+
+# PTP hardware timestamping (if supported by NIC)
+# refclock PHC /dev/ptp0 poll 0 dpoll -2 offset 0
+
+# Allow time sync from control network only
+allow {{ control_subnet }}
+
+# Step the clock if offset > 1s on first 3 updates
+makestep 1.0 3
+
+# Record tracking statistics
+driftfile /var/lib/chrony/chrony.drift
+logdir /var/log/chrony
+
+# RTC synchronization
+rtcsync
+
+# Minimum sources required for sync
+minsources 1

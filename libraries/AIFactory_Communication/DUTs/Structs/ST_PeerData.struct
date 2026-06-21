@@ -1,0 +1,75 @@
+(* =============================================================================
+    ST_PeerData — Peer Exchange Data Packet
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Fixed-size data structure exchanged between IPCs every cycle.
+     Each IPC publishes one of these; all peers receive it.
+     Designed for minimal size (fits in one UDP packet / OPC UA read).
+   
+   DESIGN:
+     • Fixed 128-byte structure — predictable, no dynamic allocation
+     • Sequence counter — detects missed packets / stale data
+     • Timestamp — allows receiver to calculate actual latency
+     • All safety-critical BOOLs at the TOP — read first, fail-safe
+   ============================================================================= *)
+
+TYPE ST_PeerData :
+STRUCT
+    (* ═══ HEADER (always read first) ═══ *)
+    nSequence            : UDINT;           (* Incrementing counter; detects gaps *)
+    nTimestamp_ms        : UDINT;           (* Sender's system time [ms] *)
+    nSourceIPC           : USINT;           (* 1=Power, 2=Cooling, 3=Environ, 4=Safety *)
+    eLifecycle           : E_Lifecycle;     (* Sender's lifecycle state *)
+    
+    (* ═══ SAFETY-CRITICAL (read these even if rest is stale) ═══ *)
+    bSafetyPermit        : BOOL;            (* Safety IPC: permit to operate *)
+    bEmergencyStop       : BOOL;            (* Any IPC: emergency condition *)
+    bRequestPowerShed    : BOOL;            (* Cooling→Power: need load reduction *)
+    bRequestMaxCool      : BOOL;            (* Power→Cooling: thermal emergency *)
+    
+    (* ═══ OPERATIONAL DATA ═══ *)
+    fPrimaryValue_1      : REAL;            (* IPC-specific: see mapping below *)
+    fPrimaryValue_2      : REAL;
+    fPrimaryValue_3      : REAL;
+    fPrimaryValue_4      : REAL;
+    
+    (* ═══ STATUS FLAGS ═══ *)
+    bHealthy             : BOOL;            (* Sender is healthy *)
+    bHasAlarm            : BOOL;            (* Sender has active alarm *)
+    bAtCapacity          : BOOL;            (* Sender at maximum capacity *)
+    nAlarmCount          : USINT;           (* Number of active alarms *)
+    
+    (* ═══ HEARTBEAT ═══ *)
+    nHeartbeat           : UDINT;           (* Sender's scan counter *)
+END_STRUCT
+END_TYPE
+
+(*
+   PRIMARY VALUE MAPPING PER IPC:
+   
+   IPC-01 (Power):
+     fPrimaryValue_1 = Total Facility Power [kW]
+     fPrimaryValue_2 = PUE
+     fPrimaryValue_3 = UPS Battery SOC [%]
+     fPrimaryValue_4 = Grid Frequency [Hz]
+   
+   IPC-02 (Cooling):
+     fPrimaryValue_1 = Max GPU Temperature [°C]
+     fPrimaryValue_2 = Total Cooling Capacity [kW]
+     fPrimaryValue_3 = Avg Supply Temperature [°C]
+     fPrimaryValue_4 = Free Cooling Active (0/1)
+   
+   IPC-03 (Environment):
+     fPrimaryValue_1 = Facility Avg Temperature [°C]
+     fPrimaryValue_2 = Facility Avg Humidity [%RH]
+     fPrimaryValue_3 = Min Condensation Margin [°C]
+     fPrimaryValue_4 = Zones in Alarm (count)
+   
+   IPC-04 (Safety):
+     fPrimaryValue_1 = Tripped Zone Count
+     fPrimaryValue_2 = Fire State (enum as REAL)
+     fPrimaryValue_3 = Leak Zone Count
+     fPrimaryValue_4 = Seismic Level [g]
+*)

@@ -1,0 +1,33 @@
+(* =============================================================================
+    PRG_Power_Main — IPC-01 Power Control Task Main Program
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   TASK: Control_Task — Priority 1, Cycle 10ms
+   
+   PURPOSE:
+     Monitors power distribution, calculates PUE, manages UPS/ATS.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_Power_Main
+VAR
+    fbPowerDist          : FB_PowerDistribution;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+fbPowerDist(
+    bEnable := TRUE,
+    fCycleTime_s := 0.01
+    (* TODO: Wire raw I/O from energy meters, UPS, ATS *)
+);
+
+(* TODO: Write ST_PowerStatus to GVL_CrossTask *)

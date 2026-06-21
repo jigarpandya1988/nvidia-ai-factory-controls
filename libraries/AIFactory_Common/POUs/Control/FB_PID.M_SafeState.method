@@ -1,0 +1,45 @@
+(* =============================================================================
+    FB_PID.M_SafeState — Drive Output to Safe Value
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   BEHAVIOR:
+     Output immediately set to fSafeOutput (default 0.0).
+     Integrator cleared to prevent windup during disabled state.
+     All diagnostic outputs zeroed.
+   
+   IDEMPOTENT: Safe to call repeatedly.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Drive output to configured safe value *)
+fOutput := fSafeOutput;
+
+(* Clear integrator — prevents windup accumulation while disabled *)
+_fIntegral := 0.0;
+_fDerivState := 0.0;
+
+(* Clear diagnostic outputs *)
+fError := 0.0;
+fP_Term := 0.0;
+fI_Term := 0.0;
+fD_Term := 0.0;
+bAtUpperLimit := FALSE;
+bAtLowerLimit := FALSE;
+bIsManual := FALSE;
+
+(* Track output for bumpless restart *)
+_fOutputPrev := fSafeOutput;
+
+M_SafeState := TRUE;

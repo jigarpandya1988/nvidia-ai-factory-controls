@@ -1,0 +1,280 @@
+# =============================================================================
+# Alarm Definitions — NVIDIA AI Factory Controls
+# =============================================================================
+# Central alarm configuration for all IPCs.
+# Alarms are categorized by severity and mapped to escalation procedures.
+# =============================================================================
+
+alarm_classes:
+  - id: CRITICAL
+    priority: 1
+    color: "#FF0000"
+    sound: continuous
+    auto_acknowledge: false
+    escalation_delay_min: 0
+    notification:
+      - sms
+      - email
+      - pager
+      - phone_call
+    description: "Immediate action required. Equipment damage or safety risk."
+
+  - id: HIGH
+    priority: 2
+    color: "#FF8C00"
+    sound: intermittent
+    auto_acknowledge: false
+    escalation_delay_min: 5
+    notification:
+      - sms
+      - email
+    description: "Urgent attention needed. Potential for escalation."
+
+  - id: MEDIUM
+    priority: 3
+    color: "#FFD700"
+    sound: single
+    auto_acknowledge: false
+    escalation_delay_min: 30
+    notification:
+      - email
+    description: "Attention needed during normal working hours."
+
+  - id: LOW
+    priority: 4
+    color: "#87CEEB"
+    sound: none
+    auto_acknowledge: true
+    auto_acknowledge_delay_min: 60
+    escalation_delay_min: 240
+    notification:
+      - email_digest
+    description: "Informational. Review during next maintenance window."
+
+# =============================================================================
+# Power System Alarms (IPC-01)
+# =============================================================================
+power_alarms:
+  - id: PWR_001
+    name: "Utility Power Loss"
+    class: CRITICAL
+    source: IPC-01
+    condition: "Grid voltage < 10% nominal for > 100ms"
+    setpoint: 48.0  # V (10% of 480V)
+    deadband: 5.0
+    delay_s: 0.1
+    action: "Start generator sequence. Verify UPS operation."
+
+  - id: PWR_002
+    name: "UPS On Battery"
+    class: HIGH
+    source: IPC-01
+    condition: "UPS operating on battery power"
+    delay_s: 0
+    action: "Monitor battery runtime. Prepare load shedding if > 5 min."
+
+  - id: PWR_003
+    name: "DC Bus Overvoltage"
+    class: CRITICAL
+    source: IPC-01
+    condition: "800VDC bus > 850V"
+    setpoint: 850.0
+    deadband: 10.0
+    delay_s: 0
+    action: "Trip rectifier. Investigate cause before reset."
+
+  - id: PWR_004
+    name: "Phase Imbalance"
+    class: MEDIUM
+    source: IPC-01
+    condition: "Phase current imbalance > 20%"
+    setpoint: 20.0
+    deadband: 5.0
+    delay_s: 30
+    action: "Review load distribution. Schedule rebalancing."
+
+  - id: PWR_005
+    name: "PUE High"
+    class: LOW
+    source: IPC-01
+    condition: "PUE > 1.15 for > 1 hour"
+    setpoint: 1.15
+    deadband: 0.02
+    delay_s: 3600
+    action: "Review cooling efficiency. Check for free cooling opportunity."
+
+  - id: PWR_006
+    name: "Ground Fault Detected"
+    class: CRITICAL
+    source: IPC-01
+    condition: "Ground fault indicator active"
+    delay_s: 0
+    action: "Isolate affected circuit. Do NOT reset without investigation."
+
+# =============================================================================
+# Cooling System Alarms (IPC-02)
+# =============================================================================
+cooling_alarms:
+  - id: CLG_001
+    name: "GPU Temperature Critical"
+    class: CRITICAL
+    source: IPC-02
+    condition: "Any GPU junction temp > 83°C"
+    setpoint: 83.0
+    deadband: 2.0
+    delay_s: 0
+    action: "Maximum cooling. Notify compute team for workload reduction."
+
+  - id: CLG_002
+    name: "GPU Temperature Warning"
+    class: HIGH
+    source: IPC-02
+    condition: "Any GPU junction temp > 78°C"
+    setpoint: 78.0
+    deadband: 2.0
+    delay_s: 10
+    action: "Increase cooling setpoint. Monitor trend."
+
+  - id: CLG_003
+    name: "Supply Temperature High"
+    class: HIGH
+    source: IPC-02
+    condition: "CDU supply temp > 40°C"
+    setpoint: 40.0
+    deadband: 1.0
+    delay_s: 30
+    action: "Check CDU operation. Verify facility water supply."
+
+  - id: CLG_004
+    name: "Flow Rate Low"
+    class: CRITICAL
+    source: IPC-02
+    condition: "Coolant flow < 50% of design"
+    setpoint: 50.0  # percent
+    deadband: 5.0
+    delay_s: 5
+    action: "Check pump operation. Open isolation valves. Switch to standby."
+
+  - id: CLG_005
+    name: "Leak Detected"
+    class: CRITICAL
+    source: IPC-02
+    condition: "Leak sensing cable activated"
+    delay_s: 0
+    action: "Isolate affected zone. Dispatch maintenance. Assess severity."
+
+  - id: CLG_006
+    name: "Pump VFD Fault"
+    class: HIGH
+    source: IPC-02
+    condition: "VFD fault signal active"
+    delay_s: 0
+    action: "Switch to standby pump. Log fault code for maintenance."
+
+  - id: CLG_007
+    name: "Differential Pressure High"
+    class: HIGH
+    source: IPC-02
+    condition: "System dP > 6 bar"
+    setpoint: 6.0
+    deadband: 0.5
+    delay_s: 10
+    action: "Reduce pump speed. Check for blockage or closed valve."
+
+  - id: CLG_008
+    name: "Delta-T Excessive"
+    class: MEDIUM
+    source: IPC-02
+    condition: "Return - Supply > 20°C"
+    setpoint: 20.0
+    deadband: 2.0
+    delay_s: 60
+    action: "Flow restriction likely. Check valves and filters."
+
+  - id: CLG_009
+    name: "Condensation Risk"
+    class: MEDIUM
+    source: IPC-02
+    condition: "Supply temp < dew point + 3°C"
+    delay_s: 30
+    action: "Raise supply temperature setpoint. Check humidity."
+
+# =============================================================================
+# Safety System Alarms (IPC-04)
+# =============================================================================
+safety_alarms:
+  - id: SAF_001
+    name: "EPO Zone Tripped"
+    class: CRITICAL
+    source: IPC-04
+    condition: "Any EPO zone activated"
+    delay_s: 0
+    action: "Investigate cause. Do NOT reset without site inspection."
+
+  - id: SAF_002
+    name: "Fire Detection - Alert"
+    class: HIGH
+    source: IPC-04
+    condition: "VESDA at Alert level"
+    delay_s: 0
+    action: "Investigate area. Prepare for possible evacuation."
+
+  - id: SAF_003
+    name: "Fire Detection - Alarm"
+    class: CRITICAL
+    source: IPC-04
+    condition: "VESDA at Fire level or spot detector activated"
+    delay_s: 0
+    action: "Evacuate area. Fire suppression countdown initiated."
+
+  - id: SAF_004
+    name: "Safety Input Fault"
+    class: HIGH
+    source: IPC-04
+    condition: "Dual-channel discrepancy detected"
+    delay_s: 0
+    action: "Investigate wiring. System may be in degraded safety mode."
+
+  - id: SAF_005
+    name: "Seismic Event Detected"
+    class: CRITICAL
+    source: IPC-04
+    condition: "Accelerometer > 0.3g"
+    delay_s: 0
+    action: "Automatic shutdown initiated. Full inspection required before restart."
+
+# =============================================================================
+# Escalation Procedures
+# =============================================================================
+escalation:
+  level_1:
+    name: "On-Site Operator"
+    response_time_min: 5
+    contacts:
+      - role: "Facility Operator"
+        method: "radio + mobile"
+
+  level_2:
+    name: "Shift Supervisor"
+    response_time_min: 15
+    contacts:
+      - role: "Shift Supervisor"
+        method: "phone + sms"
+
+  level_3:
+    name: "Engineering On-Call"
+    response_time_min: 30
+    contacts:
+      - role: "Controls Engineer"
+        method: "phone"
+      - role: "Mechanical Engineer"
+        method: "phone"
+
+  level_4:
+    name: "Management"
+    response_time_min: 60
+    contacts:
+      - role: "Facility Manager"
+        method: "phone"
+      - role: "VP Operations"
+        method: "phone (critical only)"

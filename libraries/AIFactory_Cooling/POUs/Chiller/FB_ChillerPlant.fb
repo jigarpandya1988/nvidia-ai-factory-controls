@@ -1,0 +1,174 @@
+(* =============================================================================
+    FB_ChillerPlant — Chiller Plant Supervisor (Primary Cooling Loop)
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Manages the complete heat rejection plant:
+       • Chiller staging (lead/lag sequencing, N+1 redundancy)
+       • Cooling tower fan control (VFD, approach temperature)
+       • Condenser water pump control
+       • Free cooling economizer transitions
+       • Plant-level optimization (minimize kW/ton)
+   
+   COOLING CHAIN (from research):
+     GPU chips → Cold plates → Technology Cooling Loop (35°C supply)
+       → CDU heat exchanger → Facility Water Loop (FWL)
+         → Chiller evaporator → Condenser water loop
+           → Cooling tower → Atmosphere
+   
+   OR (warm-water design, 45°C supply — eliminates chillers):
+     GPU chips → Cold plates → Technology Cooling Loop (45°C supply)
+       → CDU heat exchanger → Facility Water Loop
+         → Cooling tower/dry cooler → Atmosphere (direct rejection)
+   
+   KEY INSIGHT FROM RESEARCH:
+     NVIDIA Blackwell/Vera Rubin platforms support 45°C warm-water cooling.
+     DCX FDU V2AT2 (8MW CDU) enables chiller-free operation in many climates.
+     This FB supports BOTH topologies via E_PlantMode.
+   
+   CONTROL STRATEGY:
+     1. Measure wet-bulb temperature (ambient condition)
+     2. Calculate achievable cooling tower leaving water temp (LWT)
+     3. If LWT < required facility water supply → FREE COOLING
+     4. If LWT partially meets demand → PARTIAL FREE COOLING
+     5. If LWT insufficient → MECHANICAL (chillers)
+     6. Stage chillers based on total load vs. capacity
+   
+   CHILLER STAGING (lead/lag):
+     • Load > 40% of running capacity → start next chiller
+     • Load < 30% of running capacity → stop lag chiller
+     • Minimum run time: 10 minutes (compressor protection)
+     • Minimum off time: 5 minutes (anti-recycle)
+     • Rotate lead chiller weekly (equalize run hours)
+   
+   EXTENDS: FB_Base
+   IMPLEMENTS: I_SafetyMonitored
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_ChillerPlant EXTENDS FB_Base IMPLEMENTS I_SafetyMonitored
+VAR_INPUT
+    (* ─── Ambient Conditions ─── *)
+    fOutdoorTemp         : REAL;            (* Outdoor dry-bulb temperature [°C] *)
+    fOutdoorHumidity     : REAL;            (* Outdoor relative humidity [%RH] *)
+    fWetBulbTemp         : REAL;            (* Calculated or measured wet-bulb [°C] *)
+    
+    (* ─── Facility Water Loop (FWL) ─── *)
+    fFWL_SupplyTemp      : REAL;            (* FWL supply to CDUs [°C] *)
+    fFWL_ReturnTemp      : REAL;            (* FWL return from CDUs [°C] *)
+    fFWL_FlowRate        : REAL;            (* FWL total flow [LPM] *)
+    fFWL_SupplyTempSP    : REAL := 32.0;    (* FWL supply setpoint [°C] *)
+    
+    (* ─── Condenser Water Loop ─── *)
+    fCW_SupplyTemp       : REAL;            (* Condenser water to chillers [°C] *)
+    fCW_ReturnTemp       : REAL;            (* Condenser water from chillers [°C] *)
+    
+    (* ─── Chiller Status (from each chiller's native controller) ─── *)
+    abChillerAvailable   : ARRAY[1..4] OF BOOL;  (* Chiller ready to start *)
+    abChillerRunning     : ARRAY[1..4] OF BOOL;  (* Chiller compressor running *)
+    abChillerFault       : ARRAY[1..4] OF BOOL;  (* Chiller in fault *)
+    afChillerLoad        : ARRAY[1..4] OF REAL;  (* Chiller load [%] *)
+    afChillerCapacity_kW : ARRAY[1..4] OF REAL;  (* Chiller rated capacity [kW] *)
+    
+    (* ─── Cooling Tower Status ─── *)
+    abTowerFanRunning    : ARRAY[1..4] OF BOOL;  (* CT fan running *)
+    abTowerFanFault      : ARRAY[1..4] OF BOOL;  (* CT fan VFD fault *)
+    
+    (* ─── Pump Status ─── *)
+    abCW_PumpRunning     : ARRAY[1..4] OF BOOL;  (* Condenser water pumps *)
+    abFWL_PumpRunning    : ARRAY[1..4] OF BOOL;  (* Facility water pumps *)
+    
+    (* ─── Configuration ─── *)
+    nChillerCount        : USINT := 4;      (* Installed chiller count *)
+    nTowerCount          : USINT := 4;      (* Installed cooling tower count *)
+    fStageUpThreshold    : REAL := 85.0;    (* Stage up at this % load *)
+    fStageDownThreshold  : REAL := 30.0;    (* Stage down below this % load *)
+    fFreeCoolOffset      : REAL := 3.0;     (* Free cool when WB + offset < SP *)
+    fApproachTemp        : REAL := 4.0;     (* Cooling tower approach [°C] *)
+    tMinRunTime          : TIME := T#10M;   (* Minimum chiller run time *)
+    tMinOffTime          : TIME := T#5M;    (* Minimum chiller off time *)
+    
+    (* ─── Safety ─── *)
+    bSafetyPermit        : BOOL := TRUE;
+    bEmergencyStop       : BOOL;
+    
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.1;     (* Task cycle time [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Chiller Commands ─── *)
+    abChillerStartCmd    : ARRAY[1..4] OF BOOL;  (* Start/stop commands *)
+    afChillerSP          : ARRAY[1..4] OF REAL;  (* Chiller LWT setpoint [°C] *)
+    
+    (* ─── Cooling Tower Commands ─── *)
+    afTowerFanSpeed      : ARRAY[1..4] OF REAL;  (* Fan speed [%] *)
+    abTowerFanEnable     : ARRAY[1..4] OF BOOL;  (* Fan enable *)
+    
+    (* ─── Pump Commands ─── *)
+    abCW_PumpStart       : ARRAY[1..4] OF BOOL;  (* Condenser water pump start *)
+    abFWL_PumpStart      : ARRAY[1..4] OF BOOL;  (* Facility water pump start *)
+    afCW_PumpSpeed       : ARRAY[1..4] OF REAL;  (* CW pump VFD speed [%] *)
+    afFWL_PumpSpeed      : ARRAY[1..4] OF REAL;  (* FWL pump VFD speed [%] *)
+    
+    (* ─── Economizer Valve ─── *)
+    fEconomizerValvePos  : REAL;            (* Economizer bypass valve [%] *)
+    
+    (* ─── Status ─── *)
+    ePlantMode           : E_PlantMode;     (* Current operating mode *)
+    nChillersRunning     : USINT;           (* Number of chillers online *)
+    fTotalCoolingLoad_kW : REAL;            (* Total plant cooling load [kW] *)
+    fTotalCapacity_kW    : REAL;            (* Total available capacity [kW] *)
+    fPlantLoadPct        : REAL;            (* Plant load percentage [%] *)
+    fPlant_kW_per_ton    : REAL;            (* Plant efficiency [kW/ton] *)
+    fPUE_Cooling         : REAL;            (* Cooling PUE contribution *)
+    bFreeCoolAvailable   : BOOL;            (* Ambient permits free cooling *)
+    
+    (* ─── Alarms ─── *)
+    bAlm_AllChillersFault : BOOL;           (* No chillers available *)
+    bAlm_HighFWLTemp     : BOOL;            (* FWL supply above setpoint + 5°C *)
+    bAlm_LowCWFlow       : BOOL;            (* Condenser water flow insufficient *)
+    bAlm_TowerFault      : BOOL;            (* Cooling tower fan fault *)
+END_VAR
+
+VAR
+    (* ─── Internal ─── *)
+    _fbPID_TowerFan      : FB_PID;          (* Tower fan speed PID *)
+    _fbPID_FWL_Pump      : FB_PID;          (* FWL pump speed PID *)
+    _nLeadChiller        : USINT := 1;      (* Current lead chiller *)
+    _atonMinRun          : ARRAY[1..4] OF TON;  (* Min run timers *)
+    _atonMinOff          : ARRAY[1..4] OF TON;  (* Min off timers *)
+    _tonStageDelay       : TON;             (* Delay between staging events *)
+    _fAchievableLWT      : REAL;            (* Achievable tower leaving water temp *)
+    _bSafetyPermit       : BOOL := TRUE;
+    _eSafetyState        : E_SafetyState;
+    _i                   : USINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Safety override *)
+IF bEmergencyStop OR NOT bSafetyPermit THEN
+    FOR _i := 1 TO 4 DO
+        abChillerStartCmd[_i] := FALSE;
+        abTowerFanEnable[_i] := FALSE;
+        abCW_PumpStart[_i] := FALSE;
+        afTowerFanSpeed[_i] := 0.0;
+        afCW_PumpSpeed[_i] := 0.0;
+    END_FOR
+    _bSafetyPermit := FALSE;
+    _eSafetyState := E_SafetyState.TRIPPED;
+    SUPER^();
+    RETURN;
+END_IF
+
+SUPER^();

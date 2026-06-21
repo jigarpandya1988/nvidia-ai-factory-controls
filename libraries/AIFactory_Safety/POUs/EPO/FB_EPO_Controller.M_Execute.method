@@ -1,0 +1,190 @@
+(* =============================================================================
+    FB_EPO_Controller.M_Execute — EPO Trip Logic & Input Monitoring
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   EXECUTION ORDER:
+     1. Dual-channel input monitoring (detect wiring faults)
+     2. Manual trip evaluation (button presses)
+     3. Automatic trip evaluation (fire, leak, seismic, thermal)
+     4. Reset sequence evaluation
+     5. Safety state update
+   
+   SAFETY PRINCIPLE:
+     Trip logic is PESSIMISTIC:
+       • Single valid channel asserting trip → TRIP (fail-safe)
+       • Both channels disagree → FAULT (alarm, but still monitor)
+       • Any automatic source → TRIP ALL ZONES (no partial response)
+   
+   TIMING:
+     This runs at 2ms cycle. Worst-case trip response:
+       Input change → next scan (2ms) → relay de-energizes → contactor opens
+       Total: < 2ms + relay time (~10ms) + contactor time (~50ms) = ~62ms < 100ms ✓
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    bValidTrip           : BOOL;
+    nTargetZone          : USINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 1: DUAL-CHANNEL INPUT MONITORING
+   
+   Each EPO button has two independent NC contacts (Channel A, Channel B).
+   Normal state: both FALSE. Pressed: both TRUE.
+   If only one changes → wiring fault (broken wire, short, etc.)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+bAnyInputFault := FALSE;
+
+FOR _i := 1 TO C_MAX_ZONES DO
+    (* Timer: how long have the channels disagreed? *)
+    _atonDiscrepancy[_i](
+        IN := (bEPO_Ch1[_i] XOR bEPO_Ch2[_i]),
+        PT := _tDiscrepancyMax
+    );
+    
+    (* If discrepancy persists > 200ms → confirmed wiring fault *)
+    _abChannelFault[_i] := _atonDiscrepancy[_i].Q;
+    astZoneStatus[_i].bInputFault := _abChannelFault[_i];
+    
+    IF _abChannelFault[_i] THEN
+        bAnyInputFault := TRUE;
+    END_IF
+END_FOR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 2: MANUAL TRIP EVALUATION (EPO pushbuttons)
+   
+   PESSIMISTIC LOGIC:
+     • Both channels TRUE and no fault → definite trip (normal case)
+     • One channel TRUE, other has fault → STILL TRIP (fail-safe)
+     • Both channels TRUE but fault detected → STILL TRIP
+   
+   We NEVER ignore a trip indication. False trips are acceptable.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FOR _i := 1 TO C_MAX_ZONES DO
+    (* Valid trip: both channels agree the button is pressed *)
+    bValidTrip := bEPO_Ch1[_i] AND bEPO_Ch2[_i];
+    
+    (* PESSIMISTIC: also trip if ONE channel is active and other is faulted *)
+    IF NOT bValidTrip AND _abChannelFault[_i] THEN
+        bValidTrip := bEPO_Ch1[_i] OR bEPO_Ch2[_i];
+    END_IF
+    
+    IF bValidTrip THEN
+        (* Determine target zone from button mapping *)
+        nTargetZone := anButtonToZone[_i];
+        
+        (* Bounds check — defensive programming *)
+        IF nTargetZone >= 1 AND nTargetZone <= C_MAX_ZONES THEN
+            _abTripLatch[nTargetZone] := TRUE;
+            astZoneStatus[nTargetZone].eTripSource := _i;
+            astZoneStatus[nTargetZone].sTripReason := 'Manual EPO Button';
+        END_IF
+    END_IF
+END_FOR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 3: AUTOMATIC TRIP SOURCES
+   
+   Automatic trips affect ALL zones (facility-wide response).
+   These come from other safety subsystems via hardwired inputs.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF bTrip_Fire THEN
+    FOR _i := 1 TO C_MAX_ZONES DO
+        _abTripLatch[_i] := TRUE;
+        astZoneStatus[_i].eTripSource := C_TRIP_SOURCE_FIRE;
+        astZoneStatus[_i].sTripReason := 'Fire Detection - Confirmed Fire';
+    END_FOR
+END_IF
+
+IF bTrip_LeakMajor THEN
+    FOR _i := 1 TO C_MAX_ZONES DO
+        _abTripLatch[_i] := TRUE;
+        astZoneStatus[_i].eTripSource := C_TRIP_SOURCE_LEAK;
+        astZoneStatus[_i].sTripReason := 'Major Coolant Leak - Flooding Risk';
+    END_FOR
+END_IF
+
+IF bTrip_Seismic THEN
+    FOR _i := 1 TO C_MAX_ZONES DO
+        _abTripLatch[_i] := TRUE;
+        astZoneStatus[_i].eTripSource := C_TRIP_SOURCE_SEISMIC;
+        astZoneStatus[_i].sTripReason := 'Seismic Event Exceeded Threshold';
+    END_FOR
+END_IF
+
+IF bTrip_ThermalRunaway THEN
+    FOR _i := 1 TO C_MAX_ZONES DO
+        _abTripLatch[_i] := TRUE;
+        astZoneStatus[_i].eTripSource := C_TRIP_SOURCE_THERMAL;
+        astZoneStatus[_i].sTripReason := 'Thermal Runaway Detected';
+    END_FOR
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 4: RESET SEQUENCE
+   
+   Reset requires ALL THREE conditions simultaneously for 3 seconds:
+     1. Physical key switch in RESET position (maintained)
+     2. Reset pushbutton pressed (momentary, must hold)
+     3. Access control authorization active
+   
+   This prevents accidental reset and ensures an authorized person
+   is physically present at the panel.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_tonResetHold(
+    IN := bResetKey AND bResetButton AND bResetAuthorized AND bAnyZoneTripped,
+    PT := _tResetHoldTime
+);
+
+(* R_TRIG on timer output: fires exactly once when 3s hold completes.
+   Prevents repeated clearing if operator holds beyond 3 seconds. *)
+_rtrigResetComplete(CLK := _tonResetHold.Q);
+IF _rtrigResetComplete.Q THEN
+    (* Reset successful — clear ALL trip latches *)
+    FOR _i := 1 TO C_MAX_ZONES DO
+        _abTripLatch[_i] := FALSE;
+        astZoneStatus[_i].bTripped := FALSE;
+        astZoneStatus[_i].eTripSource := 0;
+        astZoneStatus[_i].sTripReason := '';
+    END_FOR
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 5: SAFETY STATE UPDATE
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF bAnyZoneTripped THEN
+    _eSafetyState := E_SafetyState.TRIPPED;
+    _bSafetyPermit := FALSE;
+ELSIF bAnyInputFault THEN
+    _eSafetyState := E_SafetyState.ALERT;
+    _bSafetyPermit := TRUE;  (* Fault doesn't prevent operation, just alerts *)
+ELSE
+    _eSafetyState := E_SafetyState.SAFE;
+    _bSafetyPermit := TRUE;
+END_IF
+
+bSystemArmed := bEnable AND NOT bAnyInputFault;
+
+M_Execute := TRUE;

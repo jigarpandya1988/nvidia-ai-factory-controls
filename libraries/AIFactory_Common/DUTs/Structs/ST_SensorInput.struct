@@ -1,0 +1,43 @@
+(* =============================================================================
+    ST_SensorInput — Validated Sensor Reading with Quality
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Wraps any analog sensor reading with validation metadata.
+     Every sensor in the system passes through FB_SensorValidator which
+     populates this struct. Downstream logic checks bValid before using fValue.
+   
+   SAFETY PRINCIPLE:
+     If bValid = FALSE, the control logic MUST use fFallbackValue or
+     transition to a safe degraded mode. Never trust raw sensor data.
+   
+   RACE CONDITION PREVENTION:
+     This struct is populated by the fast control task and read by slower
+     tasks via atomic copy. The bFresh flag indicates whether the data
+     has been updated since last read (consumer resets it after copy).
+   ============================================================================= *)
+
+TYPE ST_SensorInput :
+STRUCT
+    (* --- Validated Output --- *)
+    fValue              : REAL;     (* Validated, filtered sensor value [eng. units] *)
+    bValid              : BOOL;     (* TRUE = value is trustworthy for control use *)
+    bFresh              : BOOL;     (* TRUE = updated since last consumer read *)
+    
+    (* --- Raw Data --- *)
+    fRawValue           : REAL;     (* Unfiltered value direct from I/O *)
+    
+    (* --- Quality Metadata --- *)
+    eQuality            : E_CommStatus;  (* Signal quality assessment *)
+    fRateOfChange       : REAL;     (* Rate of change [units/s] for spike detection *)
+    nConsecutiveFaults  : UINT;     (* Count of consecutive failed validations *)
+    
+    (* --- Configuration (set once at init) --- *)
+    fRangeLow           : REAL;     (* Valid range minimum [eng. units] *)
+    fRangeHigh          : REAL;     (* Valid range maximum [eng. units] *)
+    fFallbackValue      : REAL;     (* Value to use when bValid = FALSE *)
+    fMaxRateOfChange    : REAL;     (* Max allowed rate [units/s]; 0 = disabled *)
+    sTag                : STRING(32); (* Sensor tag name for diagnostics *)
+END_STRUCT
+END_TYPE

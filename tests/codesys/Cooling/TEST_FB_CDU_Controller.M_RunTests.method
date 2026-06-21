@@ -1,0 +1,127 @@
+(* =============================================================================
+    TEST_FB_CDU_Controller.M_RunTests — CDU Controller Test Cases
+   ============================================================================= *)
+
+METHOD M_RunTests : BOOL
+
+sSuiteName := 'TEST_FB_CDU_Controller';
+
+
+(* ─── Test 1: Starts in IDLE State ───────────────────────────────────────── *)
+THIS^.TEST('InitialState_IDLE');
+
+_fbCDU.bEnable := TRUE;
+_fbCDU.bReset := TRUE;
+_fbCDU.bSafetyPermit := TRUE;
+_fbCDU.bEmergencyStop := FALSE;
+_fbCDU.stConfig := _stConfig;
+_fbCDU.fCycleTime_s := 0.005;
+_fbCDU.bDI_PumpReady := TRUE;
+_fbCDU.bDI_PumpFault := FALSE;
+_fbCDU.fRaw_SupplyTemp := 35.0;
+_fbCDU.fRaw_ReturnTemp := 45.0;
+_fbCDU.fRaw_FlowRate := 300.0;
+_fbCDU.fRaw_DiffPressure := 3.0;
+_fbCDU();
+_fbCDU.bReset := FALSE;
+_fbCDU();
+
+THIS^.AssertEquals_INT(0, USINT_TO_DINT(_fbCDU.stStatus.eState), 'Should start in IDLE (0)');
+THIS^.AssertFalse(_fbCDU.bDO_PumpStart, 'IDLE: pump should not be started');
+
+
+(* ─── Test 2: Emergency Stop — Immediate Safe State ──────────────────────── *)
+THIS^.TEST('EmergencyStop_ImmediateSafe');
+
+(* Get CDU running first *)
+FOR _i := 1 TO 200 DO
+    _fbCDU();
+END_FOR
+
+(* Trigger emergency stop *)
+_fbCDU.bEmergencyStop := TRUE;
+_fbCDU();
+
+THIS^.AssertEquals_REAL(0.0, _fbCDU.fAO_PumpSpeed, 0.01, 'EStop: pump speed = 0');
+THIS^.AssertFalse(_fbCDU.bDO_PumpStart, 'EStop: pump start = FALSE');
+THIS^.AssertFalse(_fbCDU.bDO_IsolationValve, 'EStop: isolation valve closed');
+THIS^.AssertEquals_INT(6, USINT_TO_DINT(_fbCDU.stStatus.eState), 'Should be EMERGENCY_STOP (6)');
+
+_fbCDU.bEmergencyStop := FALSE;
+
+
+(* ─── Test 3: Safety Permit Loss — Immediate Stop ────────────────────────── *)
+THIS^.TEST('SafetyPermitLoss_Stops');
+
+_fbCDU.bReset := TRUE;
+_fbCDU();
+_fbCDU.bReset := FALSE;
+
+(* Get running *)
+FOR _i := 1 TO 200 DO
+    _fbCDU();
+END_FOR
+
+(* Revoke safety permit *)
+_fbCDU.bSafetyPermit := FALSE;
+_fbCDU();
+
+THIS^.AssertEquals_REAL(0.0, _fbCDU.fAO_PumpSpeed, 0.01, 'No permit: pump = 0');
+THIS^.AssertFalse(_fbCDU.bDO_PumpStart, 'No permit: pump stopped');
+
+_fbCDU.bSafetyPermit := TRUE;
+
+
+(* ─── Test 4: Leak Detected — Fault State ────────────────────────────────── *)
+THIS^.TEST('LeakDetected_FaultState');
+
+_fbCDU.bReset := TRUE;
+_fbCDU();
+_fbCDU.bReset := FALSE;
+
+FOR _i := 1 TO 200 DO
+    _fbCDU();
+END_FOR
+
+(* Simulate leak *)
+_fbCDU.bDI_LeakDetected := TRUE;
+_fbCDU();
+
+THIS^.AssertFalse(_fbCDU.bHealthy, 'Leak: should not be healthy');
+THIS^.AssertFalse(_fbCDU.bDO_PumpStart, 'Leak: pump must stop');
+
+_fbCDU.bDI_LeakDetected := FALSE;
+
+
+(* ─── Test 5: Status Snapshot Updates ────────────────────────────────────── *)
+THIS^.TEST('StatusSnapshot_Updates');
+
+_fbCDU.bReset := TRUE;
+_fbCDU();
+_fbCDU.bReset := FALSE;
+_fbCDU.fRaw_SupplyTemp := 36.5;
+_fbCDU.fRaw_ReturnTemp := 46.5;
+
+FOR _i := 1 TO 50 DO
+    _fbCDU();
+END_FOR
+
+THIS^.AssertEquals_REAL(36.5, _fbCDU.stStatus.fSupplyTemp, 2.0, 'Status should reflect supply temp');
+THIS^.AssertEquals_REAL(10.0, _fbCDU.stStatus.fDeltaT, 3.0, 'DeltaT should be return-supply');
+THIS^.AssertGreater(UDINT_TO_REAL(_fbCDU.stStatus.nUpdateCounter), 0.0, 'Update counter should increment');
+
+
+(* ─── Test 6: Safe State Outputs Are Deterministic ───────────────────────── *)
+THIS^.TEST('SafeState_Deterministic');
+
+_fbCDU.bEnable := FALSE;
+_fbCDU();
+_fbCDU();  (* Call twice — idempotent check *)
+
+THIS^.AssertEquals_REAL(0.0, _fbCDU.fAO_PumpSpeed, 0.01, 'Safe: pump speed 0');
+THIS^.AssertEquals_REAL(0.0, _fbCDU.fAO_ValvePosition, 0.01, 'Safe: valve position 0');
+THIS^.AssertFalse(_fbCDU.bDO_PumpStart, 'Safe: pump not started');
+THIS^.AssertFalse(_fbCDU.bDO_IsolationValve, 'Safe: isolation valve closed');
+
+
+M_RunTests := TRUE;

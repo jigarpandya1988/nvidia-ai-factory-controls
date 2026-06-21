@@ -1,0 +1,101 @@
+(* =============================================================================
+    FB_PowerDistribution.M_Execute — Power Monitoring Logic
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    fVoltageHighThreshold : REAL;
+    fVoltageLowThreshold  : REAL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── STEP 1: Validate Sensors ───────────────────────────────────────────── *)
+_fbSens_V_L1.fRawInput := fRaw_Voltage_L1;
+_fbSens_V_L1();
+_fbSens_V_L2.fRawInput := fRaw_Voltage_L2;
+_fbSens_V_L2();
+_fbSens_V_L3.fRawInput := fRaw_Voltage_L3;
+_fbSens_V_L3();
+_fbSens_Freq.fRawInput := fRaw_Frequency;
+_fbSens_Freq();
+
+
+(* ─── STEP 2: Calculations ───────────────────────────────────────────────── *)
+
+(* Average voltage *)
+_fAvgVoltage := (_fbSens_V_L1.stOutput.fValue + _fbSens_V_L2.stOutput.fValue + _fbSens_V_L3.stOutput.fValue) / 3.0;
+
+(* Min/Max for imbalance *)
+_fMaxVoltage := MAX(_fbSens_V_L1.stOutput.fValue, MAX(_fbSens_V_L2.stOutput.fValue, _fbSens_V_L3.stOutput.fValue));
+_fMinVoltage := MIN(_fbSens_V_L1.stOutput.fValue, MIN(_fbSens_V_L2.stOutput.fValue, _fbSens_V_L3.stOutput.fValue));
+
+(* Phase imbalance: (max-min)/avg * 100 *)
+IF _fAvgVoltage > 10.0 THEN
+    _fPhaseImbalance := ((_fMaxVoltage - _fMinVoltage) / _fAvgVoltage) * 100.0;
+ELSE
+    _fPhaseImbalance := 0.0;
+END_IF
+
+(* PUE = Total Facility Power / IT Equipment Power *)
+IF fMeter_ITEquipment > 10.0 THEN  (* Avoid divide by zero; minimum 10kW *)
+    _fPUE := fMeter_TotalFacility / fMeter_ITEquipment;
+    (* Low-pass filter to smooth PUE fluctuations *)
+    _fPUE_Filtered := _fPUE_Filtered + _fFilterAlpha * (_fPUE - _fPUE_Filtered);
+ELSE
+    _fPUE_Filtered := 0.0;  (* No meaningful PUE without IT load *)
+END_IF
+
+(* Energy accumulation: Power * time *)
+_fEnergy_kWh := _fEnergy_kWh + (fMeter_TotalFacility * fCycleTime_s / 3600.0);
+_fEnergyIT_kWh := _fEnergyIT_kWh + (fMeter_ITEquipment * fCycleTime_s / 3600.0);
+
+
+(* ─── STEP 3: Edge Triggers ──────────────────────────────────────────────── *)
+_rtrigUPS_Battery(CLK := bUPS_OnBattery);
+_ftrigUPS_Battery(CLK := bUPS_OnBattery);
+_rtrigATS_Transfer(CLK := NOT bATS_OnSourceA);  (* Transfer = moved away from A *)
+
+
+(* ─── STEP 4: Alarm Evaluation ───────────────────────────────────────────── *)
+fVoltageHighThreshold := fNominalVoltage * (fVoltageHighPct / 100.0);
+fVoltageLowThreshold := fNominalVoltage * (fVoltageLowPct / 100.0);
+
+_tonVoltageHigh(IN := _fMaxVoltage > fVoltageHighThreshold, PT := _tAlarmDelay);
+_tonVoltageLow(IN := _fMinVoltage < fVoltageLowThreshold AND _fMinVoltage > 10.0, PT := _tAlarmDelay);
+_tonFreqDev(IN := ABS(_fbSens_Freq.stOutput.fValue - fNominalFrequency) > fFreqDeadband, PT := _tAlarmDelay);
+_tonPhaseImbalance(IN := _fPhaseImbalance > fPhaseImbalanceLimit, PT := _tAlarmDelay);
+_tonPUE_High(IN := _fPUE_Filtered > fPUE_HighLimit AND _fPUE_Filtered > 0.0, PT := _tPUE_Delay);
+
+
+(* ─── STEP 5: Update Status Snapshot ─────────────────────────────────────── *)
+stStatus.fTotalPower_kW := fMeter_TotalFacility;
+stStatus.fITPower_kW := fMeter_ITEquipment;
+stStatus.fCoolingPower_kW := fMeter_Cooling;
+stStatus.fPUE := _fPUE_Filtered;
+stStatus.fVoltage_L1 := _fbSens_V_L1.stOutput.fValue;
+stStatus.fVoltage_L2 := _fbSens_V_L2.stOutput.fValue;
+stStatus.fVoltage_L3 := _fbSens_V_L3.stOutput.fValue;
+stStatus.fFrequency := _fbSens_Freq.stOutput.fValue;
+stStatus.fPhaseImbalance := _fPhaseImbalance;
+stStatus.fEnergy_kWh := _fEnergy_kWh;
+stStatus.bUPS_OnBattery := bUPS_OnBattery;
+stStatus.bGridHealthy := bATS_SourceA_OK OR bATS_SourceB_OK;
+stStatus.bAlm_VoltageHigh := _tonVoltageHigh.Q;
+stStatus.bAlm_VoltageLow := _tonVoltageLow.Q;
+stStatus.bAlm_PUE_High := _tonPUE_High.Q;
+stStatus.bAlm_PhaseImbalance := _tonPhaseImbalance.Q;
+stStatus.bHealthy := NOT _tonVoltageHigh.Q AND NOT _tonVoltageLow.Q
+    AND NOT bUPS_Fault AND stStatus.bGridHealthy;
+stStatus.nUpdateCounter := stStatus.nUpdateCounter + 1;
+
+M_Execute := TRUE;

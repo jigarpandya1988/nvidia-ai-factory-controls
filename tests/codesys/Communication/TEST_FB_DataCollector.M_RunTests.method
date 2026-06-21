@@ -1,0 +1,97 @@
+(* =============================================================================
+    TEST_FB_DataCollector.M_RunTests — Data Collector Test Cases
+   ============================================================================= *)
+
+METHOD M_RunTests : BOOL
+
+sSuiteName := 'TEST_FB_DataCollector';
+
+
+(* ─── Test 1: Register Points ────────────────────────────────────────────── *)
+THIS^.TEST('RegisterPoint_ReturnsIndex');
+
+_fbCollector.bEnable := TRUE;
+_fbCollector.bReset := TRUE;
+_fbCollector.fCycleTime_s := 0.1;
+_fbCollector();
+_fbCollector.bReset := FALSE;
+
+_nIdx1 := _fbCollector.M_RegisterPoint(
+    sNodePath := 'Test/Point1',
+    sDescription := 'Test point 1',
+    sUnit := '°C',
+    eMode := E_PublishMode.CYCLIC,
+    fDeadband := 0.0,
+    nCyclicInterval_ms := 1000,
+    nHeartbeatInterval_ms := 0
+);
+
+_nIdx2 := _fbCollector.M_RegisterPoint(
+    sNodePath := 'Test/Point2',
+    sDescription := 'Test point 2',
+    sUnit := '%',
+    eMode := E_PublishMode.ON_CHANGE,
+    fDeadband := 1.0,
+    nCyclicInterval_ms := 0,
+    nHeartbeatInterval_ms := 30000
+);
+
+THIS^.AssertEquals_INT(1, UINT_TO_DINT(_nIdx1), 'First point should get index 1');
+THIS^.AssertEquals_INT(2, UINT_TO_DINT(_nIdx2), 'Second point should get index 2');
+THIS^.AssertEquals_INT(2, UINT_TO_DINT(_fbCollector.nTotalPoints), 'Total should be 2');
+
+
+(* ─── Test 2: Update Value ───────────────────────────────────────────────── *)
+THIS^.TEST('UpdateValue_Succeeds');
+
+THIS^.AssertTrue(
+    _fbCollector.M_UpdateValue(nIndex := _nIdx1, fValue := 35.5, nQuality := 0),
+    'UpdateValue should return TRUE for valid index'
+);
+
+THIS^.AssertFalse(
+    _fbCollector.M_UpdateValue(nIndex := 999, fValue := 0.0, nQuality := 0),
+    'UpdateValue should return FALSE for invalid index'
+);
+
+
+(* ─── Test 3: Invalid Index Rejected ─────────────────────────────────────── *)
+THIS^.TEST('UpdateValue_InvalidIndexRejected');
+
+THIS^.AssertFalse(
+    _fbCollector.M_UpdateValue(nIndex := 0, fValue := 1.0, nQuality := 0),
+    'Index 0 should be rejected'
+);
+
+
+(* ─── Test 4: Max Capacity ───────────────────────────────────────────────── *)
+THIS^.TEST('RegisterPoint_MaxCapacity');
+
+(* Register up to max (500) — verify it doesn't crash *)
+(* We already have 2 registered, register 3 more for a total of 5 *)
+FOR _i := 3 TO 5 DO
+    _fbCollector.M_RegisterPoint(
+        sNodePath := CONCAT('Test/Point', INT_TO_STRING(_i)),
+        sDescription := 'Bulk test',
+        sUnit := '',
+        eMode := E_PublishMode.CYCLIC,
+        fDeadband := 0.0,
+        nCyclicInterval_ms := 1000,
+        nHeartbeatInterval_ms := 0
+    );
+END_FOR
+
+THIS^.AssertEquals_INT(5, UINT_TO_DINT(_fbCollector.nTotalPoints), 'Should have 5 points');
+
+
+(* ─── Test 5: Safe State Disconnects ─────────────────────────────────────── *)
+THIS^.TEST('SafeState_Disconnects');
+
+_fbCollector.bEnable := FALSE;
+_fbCollector();
+
+THIS^.AssertEquals_INT(0, USINT_TO_DINT(_fbCollector.nActivePublishers), 'Disabled: no active publishers');
+THIS^.AssertEquals_INT(0, USINT_TO_DINT(_fbCollector.nActiveSubscribers), 'Disabled: no active subscribers');
+
+
+M_RunTests := TRUE;

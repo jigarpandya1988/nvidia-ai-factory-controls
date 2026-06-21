@@ -1,0 +1,92 @@
+(* =============================================================================
+    FB_RampGenerator — Reusable Output Ramping Utility
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Provides linear ramping from current output toward a target value
+     at a configurable rate. Used for pump speed ramping, valve position
+     ramping, and any analog output that requires rate-limiting.
+   
+   BEHAVIOR:
+     - bEnable=TRUE: ramps fOutput toward fTarget at fRampRate units/second
+     - bEnable=FALSE: holds current fOutput (freeze)
+     - bReset=TRUE: jumps immediately to fTarget (no ramp)
+     - Output always clamped between fMin and fMax
+     - bAtTarget=TRUE when fOutput equals fTarget (within float tolerance)
+   
+   DESIGN:
+     Standalone utility FB — does NOT extend FB_Base.
+     Lightweight, composable, no lifecycle overhead.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_RampGenerator
+VAR_INPUT
+    fTarget          : REAL;                (* Desired output value [units] *)
+    fRampRate        : REAL;                (* Maximum change rate [units/second] *)
+    fCycleTime_s     : REAL;                (* Task cycle time [seconds] *)
+    bEnable          : BOOL;                (* TRUE = ramp active; FALSE = freeze *)
+    bReset           : BOOL;                (* TRUE = jump immediately to target *)
+    fMin             : REAL := 0.0;         (* Minimum output clamp [units] *)
+    fMax             : REAL := 100.0;       (* Maximum output clamp [units] *)
+END_VAR
+
+VAR_OUTPUT
+    fOutput          : REAL;                (* Current ramped output value [units] *)
+    bAtTarget        : BOOL;                (* TRUE when fOutput = fTarget *)
+END_VAR
+
+VAR
+    _fMaxStep        : REAL;                (* Max change per scan [units] *)
+    _fError          : REAL;                (* Distance to target [units] *)
+END_VAR
+
+VAR CONSTANT
+    C_TOLERANCE      : REAL := 0.001;       (* At-target deadband [units] *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── Reset: immediate jump to target ────────────────────────────────────────── *)
+IF bReset THEN
+    fOutput := fTarget;
+END_IF
+
+(* ─── Ramp logic (only when enabled and not reset) ───────────────────────────── *)
+IF bEnable AND NOT bReset THEN
+    (* Calculate maximum step per scan *)
+    _fMaxStep := fRampRate * fCycleTime_s;
+    
+    (* Calculate distance to target *)
+    _fError := fTarget - fOutput;
+    
+    (* Apply rate-limited step *)
+    IF ABS(_fError) <= _fMaxStep THEN
+        (* Close enough — snap to target *)
+        fOutput := fTarget;
+    ELSIF _fError > 0.0 THEN
+        (* Ramp up *)
+        fOutput := fOutput + _fMaxStep;
+    ELSE
+        (* Ramp down *)
+        fOutput := fOutput - _fMaxStep;
+    END_IF
+END_IF
+
+(* ─── Clamp output to configured limits ──────────────────────────────────────── *)
+IF fOutput < fMin THEN
+    fOutput := fMin;
+ELSIF fOutput > fMax THEN
+    fOutput := fMax;
+END_IF
+
+(* ─── At-target detection ────────────────────────────────────────────────────── *)
+bAtTarget := (ABS(fOutput - fTarget) <= C_TOLERANCE);

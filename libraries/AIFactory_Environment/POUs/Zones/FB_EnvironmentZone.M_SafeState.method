@@ -1,0 +1,34 @@
+(* =============================================================================
+    FB_EnvironmentZone.M_SafeState — Mark All Outputs Invalid
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+stStatus.eState := E_ZoneState.SENSOR_FAULT;
+stStatus.bHealthy := FALSE;
+stStatus.bSensorFault := TRUE;
+stStatus.bAlm_TempHigh := FALSE;
+stStatus.bAlm_TempLow := FALSE;
+stStatus.bAlm_HumidityHigh := FALSE;
+stStatus.bAlm_Condensation := FALSE;
+
+(* Disable sensor validators *)
+_fbSens_Temp1.bEnable := FALSE;
+_fbSens_Temp1();
+_fbSens_Temp2.bEnable := FALSE;
+_fbSens_Temp2();
+_fbSens_Humidity.bEnable := FALSE;
+_fbSens_Humidity();
+
+M_SafeState := TRUE;

@@ -1,0 +1,51 @@
+(* =============================================================================
+    FB_AlarmManager.M_ClearAlarm — Mark Alarm Inactive (Condition Cleared)
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Marks an alarm record as inactive, indicating the triggering condition
+     has returned to normal. The record remains in the buffer for history.
+   
+   PARAMETERS:
+     nID — Unique alarm identifier to clear.
+   
+   RETURNS:
+     TRUE if alarm was found and cleared.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_ClearAlarm : BOOL
+VAR_INPUT
+    nID              : UDINT;
+END_VAR
+VAR
+    _idx             : UDINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+M_ClearAlarm := FALSE;
+
+(* ─── Search for alarm with matching ID ─────────────────────────────────────── *)
+FOR _idx := 1 TO C_BUFFER_SIZE DO
+    IF _idx <= _nBufferCount THEN
+        IF _astBuffer[_idx].nID = nID AND _astBuffer[_idx].bActive THEN
+            _astBuffer[_idx].bActive := FALSE;
+            _astBuffer[_idx].dtCleared := DT#1970-01-01-00:00:00;  (* Placeholder — set by RTC *)
+            
+            (* Signal clear event for edge detection *)
+            _bClearEvent := TRUE;
+            
+            M_ClearAlarm := TRUE;
+            EXIT;
+        END_IF
+    END_IF
+END_FOR

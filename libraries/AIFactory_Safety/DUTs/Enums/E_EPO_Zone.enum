@@ -1,0 +1,30 @@
+(* =============================================================================
+    E_EPO_Zone — EPO Zone Identifiers
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Named zones for EPO system. Each zone maps to a set of power
+     contactors that can be independently de-energized.
+   
+   PHYSICAL MAPPING:
+     Zone 1-4: Compute rows (GPU racks)
+     Zone 5-6: Cooling plant rooms
+     Zone 7: Electrical switchgear room
+     Zone 8: Facility-wide (master EPO)
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EPO_Zone :
+(
+    ZONE_1_COMPUTE_A    := 1,
+    ZONE_2_COMPUTE_B    := 2,
+    ZONE_3_COMPUTE_C    := 3,
+    ZONE_4_COMPUTE_D    := 4,
+    ZONE_5_COOLING_A    := 5,
+    ZONE_6_COOLING_B    := 6,
+    ZONE_7_ELECTRICAL   := 7,
+    ZONE_8_FACILITY     := 8
+);
+END_TYPE

@@ -1,0 +1,73 @@
+(* =============================================================================
+    FB_CDU_Controller._UpdateStatus — Atomic Status Snapshot Update
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Assembles the complete ST_CDU_Status struct in one operation.
+     This struct is the ONLY cross-task data exchange mechanism.
+   
+   RACE CONDITION PREVENTION:
+     The Communication_Task reads stStatus as an atomic struct copy.
+     We write ALL fields here in sequence within a single scan.
+     Since CODESYS tasks are non-preemptive within a single cycle,
+     the struct is always consistent when read by another task at
+     its own cycle boundary.
+   
+   CALLED:
+     At the end of M_Execute() and M_SafeState() — every scan.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD PRIVATE _UpdateStatus
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* State *)
+stStatus.eState := _eState;
+stStatus.eMode := _eMode;
+stStatus.bHealthy := bHealthy;
+stStatus.bAtCapacity := (fAO_PumpSpeed >= stConfig.fPumpSpeedMax - 1.0);
+
+(* Process values *)
+stStatus.fSupplyTemp := _fbSens_Supply.stOutput.fValue;
+stStatus.fReturnTemp := _fbSens_Return.stOutput.fValue;
+stStatus.fDeltaT := _fDeltaT;
+stStatus.fFlowRate_LPM := _fbSens_Flow.stOutput.fValue;
+stStatus.fDiffPressure_bar := _fbSens_Pressure.stOutput.fValue;
+stStatus.fCoolingCapacity_kW := _fCoolingCapacity_kW;
+
+(* Control outputs *)
+stStatus.fPumpSpeedCmd := fAO_PumpSpeed;
+stStatus.fValvePositionCmd := fAO_ValvePosition;
+stStatus.bPumpRunning := bDI_PumpRunning;
+stStatus.bIsolationValveOpen := bDO_IsolationValve;
+
+(* GPU integration *)
+stStatus.fGPU_MaxTemp := fGPU_MaxTemp;
+stStatus.fGPU_TotalPower_kW := fGPU_TotalPower_kW;
+stStatus.fThermalHeadroom := _fThermalHeadroom;
+
+(* Alarms *)
+stStatus.bAlm_SupplyTempHigh := _bAlm_SupplyTempHigh;
+stStatus.bAlm_ReturnTempHigh := _bAlm_ReturnTempHigh;
+stStatus.bAlm_FlowLow := _bAlm_FlowLow;
+stStatus.bAlm_DeltaTHigh := _bAlm_DeltaTHigh;
+stStatus.bAlm_PumpFault := _bAlm_PumpFault;
+stStatus.bAlm_LeakDetected := _bAlm_LeakDetected;
+stStatus.bAlm_PressureHigh := _bAlm_PressureHigh;
+stStatus.bAlm_GPUTempWarn := _bAlm_GPUTempWarn;
+
+(* Diagnostics *)
+stStatus.nRunHours := _nRunHours;
+stStatus.nStartCount := _nStartCount;
+
+(* Update counter: reader uses this to detect stale data *)
+stStatus.nUpdateCounter := stStatus.nUpdateCounter + 1;

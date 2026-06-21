@@ -1,0 +1,28 @@
+(* =============================================================================
+    FB_PowerDistribution.M_SafeState — Power Monitor Safe State
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Power monitor is read-only — no physical outputs to safe.
+   Mark status as unhealthy so consumers know data is stale. *)
+stStatus.bHealthy := FALSE;
+
+(* Disable sensors *)
+_fbSens_V_L1.bEnable := FALSE; _fbSens_V_L1();
+_fbSens_V_L2.bEnable := FALSE; _fbSens_V_L2();
+_fbSens_V_L3.bEnable := FALSE; _fbSens_V_L3();
+_fbSens_Freq.bEnable := FALSE; _fbSens_Freq();
+
+M_SafeState := TRUE;

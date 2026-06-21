@@ -1,0 +1,86 @@
+# =============================================================================
+# Bridge Configuration — IPC-01 Power
+# Defines which OPC UA nodes to publish and which commands to accept
+# =============================================================================
+
+# OPC UA nodes to READ and publish to NATS as telemetry
+publish_nodes:
+  # Main Bus
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_MainBus_Voltage"
+    tag: "MainBus.Voltage"
+    deadband: 1.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_MainBus_Current"
+    tag: "MainBus.Current"
+    deadband: 5.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_MainBus_Power_kW"
+    tag: "MainBus.Power_kW"
+    deadband: 10.0
+    max_interval_ms: 5000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_MainBus_Frequency"
+    tag: "MainBus.Frequency"
+    deadband: 0.1
+    max_interval_ms: 30000
+
+  # UPS
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_UPS_BatteryPct"
+    tag: "UPS.BatteryPct"
+    deadband: 1.0
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_UPS_Status"
+    tag: "UPS.Status"
+    deadband: 0
+    max_interval_ms: 60000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_UPS_Load_kW"
+    tag: "UPS.Load_kW"
+    deadband: 5.0
+    max_interval_ms: 30000
+
+  # PDU
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_PDU_01_Load"
+    tag: "PDU_01.Load"
+    deadband: 2.0
+    max_interval_ms: 30000
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_PDU_01_Temp"
+    tag: "PDU_01.Temp"
+    deadband: 0.5
+    max_interval_ms: 30000
+
+  # Alarms
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_Alm_Overvoltage"
+    tag: "Alm_Overvoltage"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Power_Alm_Overcurrent"
+    tag: "Alm_Overcurrent"
+    deadband: 0
+    max_interval_ms: 60000
+    is_alarm: true
+
+# OPC UA nodes that can be WRITTEN from NATS commands
+command_nodes:
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Power_MainBreaker"
+    tag: "MainBreaker.Enable"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Power_LoadShed"
+    tag: "LoadShed.Activate"
+    type: bool
+
+  - node_id: "ns=4;s=GVL_OPCUA_Publish.Cmd_Power_Reset"
+    tag: "System.Reset"
+    type: bool
+
+# Subjects to subscribe for peer-to-peer data
+subscribe_subjects:
+  - "aifactory.us-west-01.safety.peer"
+  - "aifactory.us-west-01.cooling.peer"

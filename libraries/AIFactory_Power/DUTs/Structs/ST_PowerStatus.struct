@@ -1,0 +1,27 @@
+(* =============================================================================
+    ST_PowerStatus — Power System Status Snapshot
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+TYPE ST_PowerStatus :
+STRUCT
+    fTotalPower_kW       : REAL;    (* Total facility power [kW] *)
+    fITPower_kW          : REAL;    (* IT equipment power [kW] *)
+    fCoolingPower_kW     : REAL;    (* Cooling infrastructure power [kW] *)
+    fPUE                 : REAL;    (* Power Usage Effectiveness *)
+    fVoltage_L1          : REAL;    (* Phase L1 voltage [V] *)
+    fVoltage_L2          : REAL;    (* Phase L2 voltage [V] *)
+    fVoltage_L3          : REAL;    (* Phase L3 voltage [V] *)
+    fFrequency           : REAL;    (* Grid frequency [Hz] *)
+    fPhaseImbalance      : REAL;    (* Current imbalance [%] *)
+    fEnergy_kWh          : REAL;    (* Accumulated energy [kWh] *)
+    bUPS_OnBattery       : BOOL;
+    bGridHealthy         : BOOL;
+    bAlm_VoltageHigh     : BOOL;
+    bAlm_VoltageLow      : BOOL;
+    bAlm_PUE_High        : BOOL;
+    bAlm_PhaseImbalance  : BOOL;
+    bHealthy             : BOOL;
+    nUpdateCounter       : UDINT;
+END_STRUCT
+END_TYPE

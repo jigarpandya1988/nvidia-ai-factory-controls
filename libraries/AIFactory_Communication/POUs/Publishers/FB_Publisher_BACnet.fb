@@ -1,0 +1,90 @@
+(* =============================================================================
+    FB_Publisher_BACnet — BACnet/IP Server Publisher
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataPublisher by exposing data as BACnet objects.
+     External BMS (Building Management Systems) read these values
+     using standard BACnet/IP polling (Who-Is/I-Am, ReadProperty).
+   
+   USE CASE:
+     • Integration with Schneider EcoStruxure, Siemens Desigo, Honeywell
+     • Exposing cooling data to facility BMS
+     • HVAC coordination (free cooling, heat recovery)
+     • Energy metering to campus-level BMS
+     • Compliance with building automation standards
+   
+   BACnet OBJECT MAPPING:
+     Each data point maps to a BACnet object:
+       • Analog Value (AV) — for REAL process values (temp, flow, power)
+       • Binary Value (BV) — for BOOL status/alarms
+       • Analog Input (AI) — for read-only sensor values
+       • Multi-State Value (MSV) — for enumerations (states, modes)
+   
+   OBJECT NUMBERING:
+     AV 1-99:     Cooling system (temps, flows, speeds)
+     AV 100-199:  Power system (voltage, PUE, energy)
+     AV 200-299:  Environment (temp, humidity, dew point)
+     BV 1-99:     Alarms (active flags)
+     BV 100-199:  Status (running, healthy, etc.)
+   
+   REQUIRES:
+     CODESYS BACnet/IP Server device in project tree.
+     Or: External BACnet gateway translating from OPC UA.
+   
+   THREAD SAFETY:
+     BACnet server reads from a value table asynchronously.
+     This FB writes to the table in Communication_Task.
+     BACnet stack handles its own threading internally.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Publisher_BACnet IMPLEMENTS I_DataPublisher
+VAR_INPUT
+    (* --- Configuration --- *)
+    nDeviceInstance       : UDINT := 100001; (* BACnet device instance number *)
+    sDeviceName          : STRING(64) := 'AI-Factory-Cooling-IPC02';
+    nBaseAV              : UINT := 1;        (* Starting Analog Value object number *)
+    nBaseBV              : UINT := 1;        (* Starting Binary Value object number *)
+END_VAR
+
+VAR
+    _bConnected          : BOOL := TRUE;     (* BACnet server always "running" *)
+    _nPublishCount       : UDINT;
+    _bBatchMode          : BOOL;
+    
+    (* --- Object Value Tables --- *)
+    (* These arrays are exposed to the BACnet server device.
+       In CODESYS: map these to BACnet AV/BV objects in device config. *)
+    _afAnalogValues      : ARRAY[1..300] OF REAL;   (* AV present values *)
+    _abBinaryValues      : ARRAY[1..200] OF BOOL;   (* BV present values *)
+    _anAnalogStatus      : ARRAY[1..300] OF USINT;  (* BACnet reliability enum *)
+    
+    (* --- Object-to-NodePath Mapping --- *)
+    _asAV_Map            : ARRAY[1..300] OF STRING(128);  (* AV# → node path *)
+    _asBV_Map            : ARRAY[1..200] OF STRING(128);  (* BV# → node path *)
+    _nMappedAV           : UINT;
+    _nMappedBV           : UINT;
+    
+    (* --- Priority Array Support --- *)
+    (* BACnet priority arrays (1-16) for commandable objects.
+       Priority 1 = Manual Override, 8 = Normal, 16 = Default *)
+    _nWritePriority      : USINT := 8;      (* Default write at priority 8 *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* BACnet server is passive — no cyclic processing needed.
+   External BMS polls ReadProperty requests; CODESYS BACnet stack
+   reads from _afAnalogValues / _abBinaryValues arrays directly.
+   
+   M_PublishFloat writes to the appropriate AV index.
+   M_PublishBool writes to the appropriate BV index. *)

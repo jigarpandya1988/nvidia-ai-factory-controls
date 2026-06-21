@@ -1,0 +1,53 @@
+# =============================================================================
+# AIFactory_Common — Library Manifest
+# NVIDIA AI Factory Controls
+# =============================================================================
+# This file describes the library for documentation and build tooling.
+# In CODESYS IDE: File → New Library → set these properties.
+# =============================================================================
+
+name: AIFactory_Common
+title: "AI Factory Common Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Common"
+description: |
+  Base classes, control primitives, and shared types for all 
+  AI Factory Control IPCs. Every other library depends on this.
+
+author: "Controls Engineering Team"
+placeholder: "AIFactory Common"
+
+# Library dependencies (what this library needs)
+dependencies: []  # No dependencies — this is the base layer
+
+# What this library provides
+exports:
+  function_blocks:
+    - FB_Base              # Abstract lifecycle base class
+    - FB_PID              # Industrial PID controller
+    - FB_SensorValidator  # Input validation pipeline
+    - FB_EdgeDetector     # Combined R_TRIG + F_TRIG
+    - FB_RampGenerator    # Linear output ramping
+    - FB_Watchdog         # External heartbeat monitor
+    - FB_AlarmManager     # Alarm buffer management
+  
+  interfaces:
+    - I_Controllable      # Subsystem control contract
+    - I_SafetyMonitored   # Safety chain participation
+  
+  enumerations:
+    - E_Lifecycle         # FB lifecycle states
+    - E_AlarmSeverity     # Alarm priority levels
+    - E_CommStatus        # Communication health
+    - E_SafetyState       # Safety posture
+  
+  structures:
+    - ST_SensorInput      # Validated sensor reading
+    - ST_AlarmRecord      # Alarm instance data
+
+# Compiler settings
+compiler:
+  target: "CODESYS V3.5 SP20+"
+  language: "Structured Text (IEC 61131-3)"
+  safety: false  # Not a safety library (Safety lib is separate)

@@ -1,0 +1,37 @@
+; CODESYS Control for Linux configuration
+; Managed by Ansible — do not edit manually
+
+[CmpApp]
+Application.1=Application
+
+[CmpOPCUAServer]
+; OPC UA server port for external bridge connections
+Port=4840
+; Security: require signed+encrypted connections
+MinSecurityLevel=2
+
+[CmpSchedule]
+; Bind PLC tasks to isolated CPU cores (configured via kernel boot params)
+ProcessorLoad.Enable=1
+ProcessorLoad.Interval=1000
+
+[CmpLog]
+Logger.0.Name=PlcLog
+Logger.0.Filter=0x0000000F
+Logger.0.Enable=1
+Logger.0.MaxEntries=10000
+Logger.0.MaxFileSize=1000000
+Logger.0.MaxFiles=5
+Logger.0.Backend.0.ClassId=0x00000104
+
+[SysFile]
+; Project file path
+FilePath.1=/opt/codesys/project/
+
+[CmpMemPool]
+; Memory configuration for real-time tasks
+MemPool.0.Size=0x01000000
+
+[SysCpuHandling]
+; CPU affinity for CODESYS runtime
+CPU.0.AffinityMask=0x0C

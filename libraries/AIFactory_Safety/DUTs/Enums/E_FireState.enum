@@ -1,0 +1,36 @@
+(* =============================================================================
+    E_FireState — Fire Detection & Suppression State Machine
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   SEQUENCE (per NFPA 75/76 and FM-200/Novec 1230 standards):
+     NORMAL → ALERT (VESDA early warning) → ALARM (confirmed detection)
+       → PRE_DISCHARGE (30s countdown + audible warning)
+         → DISCHARGE (agent release) → POST_DISCHARGE (monitoring)
+   
+   ABORT:
+     During PRE_DISCHARGE only: operator can press ABORT button.
+     After DISCHARGE: cannot be aborted (agent already released).
+   
+   REFERENCE:
+     - FM-200: discharges in < 10 seconds, absorbs heat
+     - Novec 1230: zero ODP, low GWP alternative
+     - VESDA: aspirating smoke detection, 4 alarm levels
+     - Pre-action sprinkler for non-IT areas
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_FireState :
+(
+    NORMAL          := 0,   (* No detection, system monitoring *)
+    ALERT           := 1,   (* VESDA Alert level — early warning *)
+    PRE_ALARM       := 2,   (* VESDA Action level — investigate *)
+    ALARM           := 3,   (* Confirmed fire — dual detection *)
+    PRE_DISCHARGE   := 4,   (* Countdown active (30s), horn sounding *)
+    DISCHARGE       := 5,   (* Agent releasing *)
+    POST_DISCHARGE  := 6,   (* Agent released, monitoring *)
+    ABORTED         := 7,   (* Operator aborted during countdown *)
+    FAULT           := 8    (* System fault (detector/wiring) *)
+);
+END_TYPE

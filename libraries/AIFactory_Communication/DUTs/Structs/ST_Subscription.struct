@@ -1,0 +1,26 @@
+(* =============================================================================
+    ST_Subscription — Subscription Tracking Record
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Tracks the state of one subscribed data point from an external source.
+     Used by I_DataSubscriber implementations to monitor data freshness
+     and detect communication failures.
+   ============================================================================= *)
+
+TYPE ST_Subscription :
+STRUCT
+    sNodePath            : STRING(128);     (* Subscribed path *)
+    fLastValue           : REAL;            (* Last received value *)
+    bLastBoolValue       : BOOL;            (* Last received BOOL (if applicable) *)
+    nUpdateRate_ms       : UDINT;           (* Expected update interval [ms] *)
+    nLastUpdateTime_ms   : UDINT;           (* System time of last update *)
+    nAge_ms              : UDINT;           (* Current age: now - lastUpdate *)
+    bFresh               : BOOL;            (* Updated since last consumer read *)
+    bStale               : BOOL;            (* Age > 3x expected interval *)
+    nQuality             : USINT;           (* 0=Good, 1=Uncertain, 2=Bad *)
+    bActive              : BOOL;            (* Subscription is active *)
+    eProtocol            : E_ProtocolType;  (* Source protocol *)
+END_STRUCT
+END_TYPE

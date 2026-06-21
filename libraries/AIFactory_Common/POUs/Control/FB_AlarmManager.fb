@@ -1,0 +1,76 @@
+(* =============================================================================
+    FB_AlarmManager — Alarm Buffer, Acknowledge, History
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Manages a circular buffer of 100 alarm records. Provides methods to
+     raise, clear, and acknowledge alarms. Tracks active/unacknowledged
+     counts and critical alarm presence.
+   
+   DESIGN:
+     - Circular buffer: oldest alarm overwritten when full
+     - Alarm identified by nID (unique per alarm point)
+     - Raise = create/activate alarm record with timestamp
+     - Clear = mark alarm inactive (condition returned to normal)
+     - Acknowledge = mark alarm acknowledged by operator
+     - Thread-safe: designed for single-task use
+   
+   USAGE:
+     Call M_Execute() once per scan (via base class lifecycle).
+     Call M_RaiseAlarm() when a condition triggers an alarm.
+     Call M_ClearAlarm() when the alarm condition returns to normal.
+     Call M_Acknowledge() from HMI/SCADA command handler.
+   
+   EXTENDS: FB_Base
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_AlarmManager EXTENDS FB_Base
+VAR_INPUT
+    (* ─── Timing ─── *)
+    fCycleTime_s         : REAL := 0.005;   (* Task cycle [seconds] *)
+END_VAR
+
+VAR_OUTPUT
+    (* ─── Summary Status ─── *)
+    nActiveCount         : UDINT;           (* Number of currently active alarms *)
+    nUnacknowledgedCount : UDINT;           (* Number of unacknowledged alarms *)
+    bAnyCritical         : BOOL;            (* TRUE if any CRITICAL alarm is active *)
+    nTotalAlarms         : UDINT;           (* Total alarms in buffer *)
+END_VAR
+
+VAR
+    (* ─── Circular Buffer ─── *)
+    _astBuffer           : ARRAY[1..100] OF ST_AlarmRecord;
+    _nWriteIndex         : UDINT := 1;     (* Next write position *)
+    _nBufferCount        : UDINT := 0;     (* Number of valid entries *)
+    
+    (* ─── Edge Triggers for count transitions ─── *)
+    _rtrigRaise          : R_TRIG;         (* Rising edge on raise event *)
+    _rtrigClear          : R_TRIG;         (* Rising edge on clear event *)
+    
+    (* ─── Internal Flags ─── *)
+    _bRaiseEvent         : BOOL;           (* Pulse: alarm raised this scan *)
+    _bClearEvent         : BOOL;           (* Pulse: alarm cleared this scan *)
+    
+    (* ─── Loop Variable ─── *)
+    _i                   : UDINT;
+END_VAR
+
+VAR CONSTANT
+    C_BUFFER_SIZE        : UDINT := 100;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base class lifecycle handles enable/init/fault/execute gating *)
+SUPER^();

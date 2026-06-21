@@ -1,0 +1,20 @@
+# Netplan configuration for CODESYS IPC control network
+# Managed by Ansible — do not edit manually
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    {{ control_interface | default('eth1') }}:
+      addresses:
+        - {{ control_ip }}/24
+      routes:
+        - to: {{ control_subnet }}
+          via: {{ gateway }}
+      mtu: 1500
+      link-local: []
+  vlans:
+    vlan{{ control_vlan }}:
+      id: {{ control_vlan }}
+      link: {{ control_interface | default('eth1') }}
+      addresses:
+        - {{ control_ip }}/24

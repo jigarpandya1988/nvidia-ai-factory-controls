@@ -1,0 +1,65 @@
+(* =============================================================================
+    FB_PowerDistribution.M_Initialize — Configure Voltage/Freq Sensors
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Initialize : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Voltage sensors: 0-700V range (covers 480V ±46%) *)
+_fbSens_V_L1.fRangeLow := 0.0;
+_fbSens_V_L1.fRangeHigh := 700.0;
+_fbSens_V_L1.fMaxRateOfChange := 500.0;  (* V/s — fast for transients *)
+_fbSens_V_L1.fFallbackValue := fNominalVoltage;
+_fbSens_V_L1.fFilterTimeConst := 0.1;
+_fbSens_V_L1.fFrozenTimeout_s := 5.0;
+_fbSens_V_L1.sTag := 'V_L1';
+_fbSens_V_L1.fCycleTime_s := fCycleTime_s;
+_fbSens_V_L1.bEnable := TRUE;
+
+_fbSens_V_L2.fRangeLow := 0.0;
+_fbSens_V_L2.fRangeHigh := 700.0;
+_fbSens_V_L2.fMaxRateOfChange := 500.0;
+_fbSens_V_L2.fFallbackValue := fNominalVoltage;
+_fbSens_V_L2.fFilterTimeConst := 0.1;
+_fbSens_V_L2.fFrozenTimeout_s := 5.0;
+_fbSens_V_L2.sTag := 'V_L2';
+_fbSens_V_L2.fCycleTime_s := fCycleTime_s;
+_fbSens_V_L2.bEnable := TRUE;
+
+_fbSens_V_L3.fRangeLow := 0.0;
+_fbSens_V_L3.fRangeHigh := 700.0;
+_fbSens_V_L3.fMaxRateOfChange := 500.0;
+_fbSens_V_L3.fFallbackValue := fNominalVoltage;
+_fbSens_V_L3.fFilterTimeConst := 0.1;
+_fbSens_V_L3.fFrozenTimeout_s := 5.0;
+_fbSens_V_L3.sTag := 'V_L3';
+_fbSens_V_L3.fCycleTime_s := fCycleTime_s;
+_fbSens_V_L3.bEnable := TRUE;
+
+(* Frequency sensor: 45-65 Hz range *)
+_fbSens_Freq.fRangeLow := 45.0;
+_fbSens_Freq.fRangeHigh := 65.0;
+_fbSens_Freq.fMaxRateOfChange := 5.0;  (* Hz/s *)
+_fbSens_Freq.fFallbackValue := fNominalFrequency;
+_fbSens_Freq.fFilterTimeConst := 0.5;
+_fbSens_Freq.fFrozenTimeout_s := 5.0;
+_fbSens_Freq.sTag := 'Freq';
+_fbSens_Freq.fCycleTime_s := fCycleTime_s;
+_fbSens_Freq.bEnable := TRUE;
+
+(* Init PUE filter *)
+_fPUE_Filtered := 1.0;  (* Start at ideal PUE *)
+_fEnergy_kWh := 0.0;
+_fEnergyIT_kWh := 0.0;
+
+M_Initialize := TRUE;

@@ -1,0 +1,26 @@
+# =============================================================================
+# AIFactory_Environment — Library Manifest
+# =============================================================================
+
+name: AIFactory_Environment
+title: "AI Factory Environmental Monitoring Library"
+version: 1.0.0.0
+company: "NVIDIA AI Factory Controls"
+namespace: "AIFactory.Environment"
+description: |
+  Zone-based temperature, humidity, dew point monitoring with
+  condensation risk detection for AI factory data halls.
+
+dependencies:
+  - name: AIFactory_Common
+    version: ">=1.0.0.0"
+
+exports:
+  function_blocks:
+    - FB_EnvironmentZone     # Single zone monitoring
+  
+  enumerations:
+    - E_ZoneState            # Zone health states
+  
+  structures:
+    - ST_ZoneStatus          # Zone status snapshot

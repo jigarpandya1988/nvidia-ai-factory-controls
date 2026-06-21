@@ -1,0 +1,226 @@
+# =============================================================================
+# Ansible Playbook — CODESYS IPC Initial Setup
+# NVIDIA AI Factory Controls
+# =============================================================================
+# Provisions a fresh Linux IPC with CODESYS runtime, networking, and security.
+# Usage: ansible-playbook -i inventory.yml playbook-ipc-setup.yml
+# =============================================================================
+
+---
+- name: Setup CODESYS IPC for AI Factory Controls
+  hosts: ipcs
+  become: yes
+  vars:
+    codesys_version: "3.5.20.0"
+    codesys_runtime_package: "codesyscontrol_linux_{{ codesys_version }}_arm64.deb"
+    ntp_server: "192.168.100.1"
+    control_vlan: 100
+    control_subnet: "192.168.100.0/24"
+    gateway: "192.168.100.1"
+
+  tasks:
+    # =========================================================================
+    # System Preparation
+    # =========================================================================
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+      tags: [system]
+
+    - name: Install required packages
+      apt:
+        name:
+          - linux-image-rt-arm64    # PREEMPT_RT kernel
+          - chrony                   # NTP/PTP time sync
+          - ufw                      # Firewall
+          - fail2ban                 # Brute-force protection
+          - unattended-upgrades      # Security updates
+          - ethtool                  # Network tuning
+          - lm-sensors               # Hardware monitoring
+          - htop
+          - iotop
+        state: present
+      tags: [system]
+
+    - name: Set hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+      tags: [system]
+
+    - name: Configure timezone
+      timezone:
+        name: UTC
+      tags: [system]
+
+    # =========================================================================
+    # Real-Time Kernel Configuration
+    # =========================================================================
+    - name: Set RT kernel as default boot
+      command: >
+        grub-set-default "Advanced options for Debian GNU/Linux>Debian GNU/Linux, with Linux {{ rt_kernel_version }}"
+      when: rt_kernel_version is defined
+      tags: [kernel]
+
+    - name: Configure CPU isolation for CODESYS tasks
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3"'
+      notify: update grub
+      tags: [kernel]
+
+    - name: Set real-time scheduling limits
+      copy:
+        dest: /etc/security/limits.d/99-codesys-rt.conf
+        content: |
+          # CODESYS real-time scheduling limits
+          codesys  soft  rtprio  99
+          codesys  hard  rtprio  99
+          codesys  soft  memlock unlimited
+          codesys  hard  memlock unlimited
+          codesys  soft  nice    -20
+          codesys  hard  nice    -20
+      tags: [kernel]
+
+    # =========================================================================
+    # Network Configuration
+    # =========================================================================
+    - name: Configure control network interface
+      template:
+        src: templates/netplan-control.yaml.j2
+        dest: /etc/netplan/10-control-network.yaml
+      notify: apply netplan
+      tags: [network]
+
+    - name: Configure firewall (UFW)
+      ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        from_ip: "{{ control_subnet }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "4840", proto: "tcp", comment: "OPC UA" }
+        - { port: "22", proto: "tcp", comment: "SSH (control net only)" }
+        - { port: "11740", proto: "tcp", comment: "CODESYS Gateway" }
+        - { port: "1217", proto: "udp", comment: "CODESYS Discovery" }
+      tags: [network]
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+        policy: deny
+      tags: [network]
+
+    # =========================================================================
+    # Time Synchronization (Critical for distributed control)
+    # =========================================================================
+    - name: Configure Chrony for PTP/NTP
+      template:
+        src: templates/chrony.conf.j2
+        dest: /etc/chrony/chrony.conf
+      notify: restart chrony
+      tags: [time]
+
+    # =========================================================================
+    # CODESYS Runtime Installation
+    # =========================================================================
+    - name: Create CODESYS user
+      user:
+        name: codesys
+        system: yes
+        shell: /usr/sbin/nologin
+        groups: dialout,gpio
+      tags: [codesys]
+
+    - name: Copy CODESYS runtime package
+      copy:
+        src: "packages/{{ codesys_runtime_package }}"
+        dest: "/tmp/{{ codesys_runtime_package }}"
+      tags: [codesys]
+
+    - name: Install CODESYS runtime
+      apt:
+        deb: "/tmp/{{ codesys_runtime_package }}"
+      tags: [codesys]
+
+    - name: Configure CODESYS runtime
+      template:
+        src: templates/CODESYSControl.cfg.j2
+        dest: /etc/CODESYSControl.cfg
+      notify: restart codesys
+      tags: [codesys]
+
+    - name: Enable CODESYS service
+      systemd:
+        name: codesyscontrol
+        enabled: yes
+        state: started
+      tags: [codesys]
+
+    # =========================================================================
+    # Security Hardening
+    # =========================================================================
+    - name: Disable root SSH login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: restart sshd
+      tags: [security]
+
+    - name: Configure fail2ban for SSH
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+          port = ssh
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 3600
+      notify: restart fail2ban
+      tags: [security]
+
+    - name: Enable automatic security updates
+      copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::Automatic-Reboot "false";
+      tags: [security]
+
+  # ===========================================================================
+  # Handlers
+  # ===========================================================================
+  handlers:
+    - name: update grub
+      command: update-grub
+
+    - name: apply netplan
+      command: netplan apply
+
+    - name: restart chrony
+      systemd:
+        name: chrony
+        state: restarted
+
+    - name: restart codesys
+      systemd:
+        name: codesyscontrol
+        state: restarted
+
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted

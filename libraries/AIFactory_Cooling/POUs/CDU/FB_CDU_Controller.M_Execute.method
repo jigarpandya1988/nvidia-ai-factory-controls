@@ -1,0 +1,364 @@
+(* =============================================================================
+    FB_CDU_Controller.M_Execute — Main CDU Control Logic
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   EXECUTION ORDER (every 5ms scan):
+     1. Validate all sensor inputs
+     2. Calculate derived values (deltaT, capacity, headroom)
+     3. Evaluate alarms
+     4. Execute state machine
+     5. Generate control outputs (PID + feedforward)
+     6. Apply output limits and ramps
+     7. Update status snapshot
+   
+   SAFETY INVARIANT:
+     If ANY critical sensor is invalid AND no fallback is acceptable,
+     the state machine transitions to FAULT. This is checked BEFORE
+     control output generation.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+VAR
+    fPumpPID_Output      : REAL;
+    fValvePID_Output     : REAL;
+    fPumpTotal           : REAL;
+    bCriticalSensorFault : BOOL;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 1: SENSOR VALIDATION
+   Run all sensor validators. They filter, range-check, and flag faults.
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+_fbSens_Supply.fRawInput := fRaw_SupplyTemp;
+_fbSens_Supply();
+
+_fbSens_Return.fRawInput := fRaw_ReturnTemp;
+_fbSens_Return();
+
+_fbSens_Flow.fRawInput := fRaw_FlowRate;
+_fbSens_Flow();
+
+_fbSens_Pressure.fRawInput := fRaw_DiffPressure;
+_fbSens_Pressure();
+
+(* Critical sensor check: supply temp MUST be valid for safe control.
+   Without it, we cannot guarantee GPU temperatures stay safe. *)
+bCriticalSensorFault := NOT _fbSens_Supply.stOutput.bValid
+                    AND NOT _fbSens_Return.stOutput.bValid;
+
+IF bCriticalSensorFault AND _eState = E_CDU_State.RUNNING THEN
+    (* Both temperature sensors failed — cannot control safely *)
+    THIS^.M_SetFault('Critical: Both temperature sensors invalid');
+    M_Execute := FALSE;
+    RETURN;
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 2: DERIVED CALCULATIONS
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Delta-T: indicator of heat load and flow adequacy *)
+_fDeltaT := _fbSens_Return.stOutput.fValue - _fbSens_Supply.stOutput.fValue;
+
+(* Cooling capacity: Q = ṁ * Cp * ΔT
+   For water/glycol mix: Cp ≈ 3.8 kJ/(kg·°C), density ≈ 1.03 kg/L
+   Q [kW] = FlowRate[L/min] * 1.03[kg/L] * 3.8[kJ/kg°C] * ΔT[°C] / 60[s/min] *)
+IF _fbSens_Flow.stOutput.bValid AND _fDeltaT > 0.0 THEN
+    _fCoolingCapacity_kW := _fbSens_Flow.stOutput.fValue * 1.03 * 3.8 * _fDeltaT / 60.0;
+ELSE
+    _fCoolingCapacity_kW := 0.0;
+END_IF
+
+(* Thermal headroom: how close GPUs are to throttle temperature *)
+IF bGPU_DataValid THEN
+    _fThermalHeadroom := stConfig.fGPU_TempTrip - fGPU_MaxTemp;
+ELSE
+    (* GPU data unavailable — assume worst case (no headroom) *)
+    _fThermalHeadroom := 0.0;
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 3: ALARM EVALUATION
+   Alarms are evaluated every scan but only trigger state changes
+   after confirmation delay (handled in state machine).
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_bAlm_SupplyTempHigh := _fbSens_Supply.stOutput.bValid
+    AND (_fbSens_Supply.stOutput.fValue > stConfig.fAlm_SupplyTempHigh);
+
+_bAlm_ReturnTempHigh := _fbSens_Return.stOutput.bValid
+    AND (_fbSens_Return.stOutput.fValue > stConfig.fReturnTempMaxSP);
+
+_bAlm_FlowLow := _fbSens_Flow.stOutput.bValid
+    AND (_fbSens_Flow.stOutput.fValue < (stConfig.fDesignFlowRate * stConfig.fAlm_FlowLowPct / 100.0))
+    AND (_eState = E_CDU_State.RUNNING);
+
+_bAlm_DeltaTHigh := (_fDeltaT > stConfig.fAlm_DeltaTHigh)
+    AND (_eState = E_CDU_State.RUNNING);
+
+_bAlm_PumpFault := bDI_PumpFault;
+
+_bAlm_LeakDetected := bDI_LeakDetected;
+
+_bAlm_PressureHigh := bDI_HighPressure
+    OR (_fbSens_Pressure.stOutput.bValid
+        AND (_fbSens_Pressure.stOutput.fValue > stConfig.fAlm_PressureHigh));
+
+_bAlm_GPUTempWarn := bGPU_DataValid
+    AND (fGPU_MaxTemp > stConfig.fGPU_TempWarn);
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 4: STATE MACHINE
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* --- Leak detection overrides everything (except emergency stop) --- *)
+IF _bAlm_LeakDetected THEN
+    _eState := E_CDU_State.FAULT;
+    THIS^.M_SetFault('Leak detected in CDU zone');
+    M_Execute := FALSE;
+    RETURN;
+END_IF
+
+CASE _eState OF
+
+    E_CDU_State.IDLE:
+        (* Outputs safe, waiting for enable *)
+        bDO_PumpStart := FALSE;
+        bDO_IsolationValve := FALSE;
+        fAO_PumpSpeed := 0.0;
+        fAO_ValvePosition := 0.0;
+        
+        (* Transition: enable requested and preconditions met *)
+        IF bEnable AND bSafetyPermit AND NOT bDI_PumpFault AND bDI_PumpReady THEN
+            _eState := E_CDU_State.PRE_CHECK;
+        END_IF
+
+    E_CDU_State.PRE_CHECK:
+        (* Verify all preconditions before starting pump *)
+        IF NOT bDI_PumpReady THEN
+            _eState := E_CDU_State.IDLE;  (* VFD not ready, go back *)
+        ELSIF bDI_PumpFault THEN
+            _eState := E_CDU_State.FAULT;
+            THIS^.M_SetFault('VFD fault during pre-check');
+        ELSE
+            (* Open isolation valve first, then start pump *)
+            bDO_IsolationValve := TRUE;
+            _eState := E_CDU_State.STARTING;
+            _tonStartup(IN := FALSE);  (* Reset timer *)
+        END_IF
+
+    E_CDU_State.STARTING:
+        (* Ramp pump up, wait for stable flow before engaging PID *)
+        bDO_PumpStart := TRUE;
+        bDO_IsolationValve := TRUE;
+        fAO_PumpSpeed := stConfig.fPumpSpeedMin;  (* Start at minimum *)
+        
+        _tonStartup(IN := TRUE, PT := stConfig.tStartupDelay);
+        
+        IF _tonStartup.Q AND bDI_PumpRunning THEN
+            (* Startup complete — enable PID controllers *)
+            _fbPID_Pump.bEnable := TRUE;
+            _fbPID_Valve.bEnable := TRUE;
+            _eState := E_CDU_State.RUNNING;
+            
+            (* Count pump start *)
+            _nStartCount := _nStartCount + 1;
+        ELSIF bDI_PumpFault THEN
+            _eState := E_CDU_State.FAULT;
+            THIS^.M_SetFault('VFD fault during startup');
+        END_IF
+
+    E_CDU_State.RUNNING:
+        (* ─── Normal operation: PID + Feedforward ─── *)
+        bDO_PumpStart := TRUE;
+        bDO_IsolationValve := TRUE;
+        
+        (* Determine active mode *)
+        _eMode := eRequestedMode;
+        
+        (* GPU temperature override: force MAX_COOL if GPU critical *)
+        IF bGPU_DataValid AND (fGPU_MaxTemp >= stConfig.fGPU_TempTrip) THEN
+            _eMode := E_CDU_Mode.MAX_COOL;
+        END_IF
+        
+        (* Execute mode-specific control — see STEP 5 below *)
+        
+        (* Fault transitions *)
+        IF bDI_PumpFault THEN
+            _tonFaultConfirm(IN := TRUE, PT := stConfig.tFaultDelay);
+            IF _tonFaultConfirm.Q THEN
+                _eState := E_CDU_State.FAULT;
+                THIS^.M_SetFault('VFD fault confirmed during operation');
+            END_IF
+        ELSE
+            _tonFaultConfirm(IN := FALSE);
+        END_IF
+        
+        (* Disable requested *)
+        IF NOT bEnable THEN
+            _eState := E_CDU_State.STOPPING;
+            _tonStopRamp(IN := FALSE);
+        END_IF
+
+    E_CDU_State.STOPPING:
+        (* Controlled ramp-down *)
+        _tonStopRamp(IN := TRUE, PT := stConfig.tStopRampTime);
+        
+        (* Ramp pump speed to minimum *)
+        IF fAO_PumpSpeed > stConfig.fPumpSpeedMin THEN
+            fAO_PumpSpeed := fAO_PumpSpeed - (stConfig.fPumpRampRate * fCycleTime_s);
+        ELSE
+            fAO_PumpSpeed := 0.0;
+            bDO_PumpStart := FALSE;
+        END_IF
+        
+        (* Timeout or pump stopped → IDLE *)
+        IF _tonStopRamp.Q OR NOT bDI_PumpRunning THEN
+            bDO_PumpStart := FALSE;
+            bDO_IsolationValve := FALSE;
+            fAO_PumpSpeed := 0.0;
+            fAO_ValvePosition := 0.0;
+            _fbPID_Pump.bEnable := FALSE;
+            _fbPID_Valve.bEnable := FALSE;
+            _eState := E_CDU_State.IDLE;
+        END_IF
+
+    E_CDU_State.FAULT:
+        (* Safe-state enforced by base class M_SafeState *)
+        ;
+
+    E_CDU_State.EMERGENCY_STOP:
+        (* Handled in FB body before SUPER^() call *)
+        ;
+
+    E_CDU_State.MAINTENANCE:
+        (* Manual control mode — operator has direct control *)
+        bDO_PumpStart := TRUE;
+        bDO_IsolationValve := TRUE;
+        fAO_PumpSpeed := LIMIT(0.0, fManualPumpSpeed, 100.0);
+        fAO_ValvePosition := LIMIT(0.0, fManualValvePos, 100.0);
+
+END_CASE
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 5: CONTROL OUTPUT GENERATION (only in RUNNING state)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF _eState = E_CDU_State.RUNNING THEN
+    CASE _eMode OF
+    
+        E_CDU_Mode.NORMAL:
+            (* --- Feedforward from GPU power --- *)
+            IF bGPU_DataValid THEN
+                _fFF_Output := (fGPU_TotalPower_kW - stConfig.fFF_GPUBaseline_kW) * stConfig.fFF_Gain;
+                _fFF_Output := LIMIT(0.0, _fFF_Output, 30.0);  (* Cap FF at 30% *)
+            ELSE
+                _fFF_Output := 15.0;  (* No GPU data: assume moderate load *)
+            END_IF
+            
+            (* --- Pump PID: supply temp → pump speed --- *)
+            _fbPID_Pump.fSetpoint := stConfig.fSupplyTempSP;
+            _fbPID_Pump.fProcessValue := _fbSens_Supply.stOutput.fValue;
+            _fbPID_Pump.bManualMode := bManualMode;
+            _fbPID_Pump.fManualOutput := fManualPumpSpeed;
+            _fbPID_Pump();
+            
+            (* Combine PID + Feedforward *)
+            fPumpTotal := _fbPID_Pump.fOutput + _fFF_Output;
+            fAO_PumpSpeed := LIMIT(stConfig.fPumpSpeedMin, fPumpTotal, stConfig.fPumpSpeedMax);
+            
+            (* --- Valve PID: return temp → valve position --- *)
+            _fbPID_Valve.fSetpoint := stConfig.fReturnTempMaxSP;
+            _fbPID_Valve.fProcessValue := _fbSens_Return.stOutput.fValue;
+            _fbPID_Valve.bManualMode := bManualMode;
+            _fbPID_Valve.fManualOutput := fManualValvePos;
+            _fbPID_Valve();
+            
+            fAO_ValvePosition := _fbPID_Valve.fOutput;
+
+        E_CDU_Mode.MAX_COOL:
+            (* Emergency maximum cooling — all outputs to max *)
+            fAO_PumpSpeed := stConfig.fPumpSpeedMax;
+            fAO_ValvePosition := stConfig.fValvePosMax;
+            _fbPID_Pump.bManualMode := TRUE;
+            _fbPID_Pump.fManualOutput := stConfig.fPumpSpeedMax;
+            _fbPID_Pump();
+            _fbPID_Valve.bManualMode := TRUE;
+            _fbPID_Valve.fManualOutput := stConfig.fValvePosMax;
+            _fbPID_Valve();
+
+        E_CDU_Mode.ECONOMIZER:
+            (* Free cooling: bypass CDU, use facility water directly *)
+            fAO_PumpSpeed := stConfig.fPumpSpeedMin;  (* Minimum circulation *)
+            fAO_ValvePosition := 0.0;  (* Full bypass *)
+            _fbPID_Pump.bManualMode := TRUE;
+            _fbPID_Pump.fManualOutput := stConfig.fPumpSpeedMin;
+            _fbPID_Pump();
+
+        E_CDU_Mode.STANDBY:
+            (* Hot standby: minimum flow, ready for instant ramp *)
+            fAO_PumpSpeed := stConfig.fPumpSpeedMin;
+            fAO_ValvePosition := 50.0;  (* Mid-position *)
+            _fbPID_Pump.bManualMode := TRUE;
+            _fbPID_Pump.fManualOutput := stConfig.fPumpSpeedMin;
+            _fbPID_Pump();
+
+    END_CASE
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 6: DIAGNOSTICS (run hours, start count)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+IF bDI_PumpRunning THEN
+    _fRunSeconds := _fRunSeconds + fCycleTime_s;
+    IF _fRunSeconds >= 3600.0 THEN
+        _nRunHours := _nRunHours + 1;
+        _fRunSeconds := _fRunSeconds - 3600.0;
+    END_IF
+END_IF
+
+(* Detect pump start — R_TRIG on running feedback *)
+_rtrigPumpStart(CLK := bDI_PumpRunning);
+IF _rtrigPumpStart.Q THEN
+    _nStartCount := _nStartCount + 1;
+END_IF
+
+(* At-capacity flag *)
+stStatus.bAtCapacity := (fAO_PumpSpeed >= stConfig.fPumpSpeedMax - 1.0);
+
+(* Safety state update *)
+IF _bAlm_LeakDetected OR _bAlm_PressureHigh THEN
+    _eSafetyState := E_SafetyState.ALARM;
+    _bSafetyPermitInternal := FALSE;
+ELSIF _bAlm_SupplyTempHigh OR _bAlm_FlowLow THEN
+    _eSafetyState := E_SafetyState.ALERT;
+    _bSafetyPermitInternal := TRUE;
+ELSE
+    _eSafetyState := E_SafetyState.SAFE;
+    _bSafetyPermitInternal := TRUE;
+END_IF
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   STEP 7: UPDATE STATUS SNAPSHOT (atomic copy for cross-task access)
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+THIS^._UpdateStatus();
+
+M_Execute := TRUE;

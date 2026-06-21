@@ -1,0 +1,12 @@
+(* =============================================================================
+    TEST_FB_DataCollector — Unit Tests for Data Collection Engine
+    Test Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+FUNCTION_BLOCK TEST_FB_DataCollector EXTENDS FB_TestSuite
+VAR
+    _fbCollector         : FB_DataCollector;
+    _nIdx1               : UINT;
+    _nIdx2               : UINT;
+    _i                   : INT;
+END_VAR

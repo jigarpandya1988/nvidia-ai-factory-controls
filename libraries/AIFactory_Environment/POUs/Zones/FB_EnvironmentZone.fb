@@ -1,0 +1,67 @@
+(* =============================================================================
+    FB_EnvironmentZone — Single Zone Environmental Monitoring
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Monitors temperature, humidity, dew point for one data hall zone.
+     Uses FB_SensorValidator for all inputs. Calculates condensation risk.
+   
+   EXTENDS: FB_Base
+   COMPOSES: 2x FB_SensorValidator (temp1, temp2), 1x (humidity)
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_EnvironmentZone EXTENDS FB_Base
+VAR_INPUT
+    fRaw_Temp1           : REAL;            (* Temperature sensor A [°C] *)
+    fRaw_Temp2           : REAL;            (* Temperature sensor B (redundant) [°C] *)
+    fRaw_Humidity        : REAL;            (* Relative humidity sensor [%RH] *)
+    fRaw_Particles       : REAL;            (* Particle counter [count/m³] *)
+    sZoneName            : STRING(32) := 'Zone_01';
+    fCycleTime_s         : REAL := 0.1;
+    
+    (* Setpoints *)
+    fTempHighSP          : REAL := 35.0;    (* High temp alarm [°C] *)
+    fTempLowSP           : REAL := 15.0;    (* Low temp alarm [°C] *)
+    fHumHighSP           : REAL := 80.0;    (* High humidity [%RH] *)
+    fHumLowSP            : REAL := 20.0;    (* Low humidity [%RH] *)
+    fCondensationMarginSP: REAL := 3.0;     (* Min margin above dew point [°C] *)
+END_VAR
+
+VAR_OUTPUT
+    stStatus             : ST_ZoneStatus;
+END_VAR
+
+VAR
+    _fbSens_Temp1        : FB_SensorValidator;
+    _fbSens_Temp2        : FB_SensorValidator;
+    _fbSens_Humidity     : FB_SensorValidator;
+    _fAvgTemp            : REAL;
+    _fDewPoint           : REAL;
+    _fCondensationMargin : REAL;
+    
+    (* Magnus constants *)
+    _fMagnus_a           : REAL := 17.27;
+    _fMagnus_b           : REAL := 237.7;
+    _fGamma              : REAL;
+    
+    (* Alarm timers *)
+    _tonTempHigh         : TON;
+    _tonTempLow          : TON;
+    _tonHumHigh          : TON;
+    _tonCondensation     : TON;
+    _tAlarmDelay         : TIME := T#30S;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+SUPER^();

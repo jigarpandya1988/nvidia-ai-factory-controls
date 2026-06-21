@@ -1,0 +1,42 @@
+(* =============================================================================
+    FB_EPO_Controller.M_SafeState — EPO Fail-Safe: All Relays OFF
+    IPC-04: Safety Systems | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   SAFE STATE FOR EPO:
+     ALL relays de-energized → ALL power contactors open → ALL zones OFF.
+   
+   This is the MOST CONSERVATIVE state. It means total facility power loss.
+   This only happens if the EPO controller itself is disabled or faulted,
+   which should be an extremely rare condition (hardware failure).
+   
+   RATIONALE:
+     If the safety controller cannot guarantee correct operation,
+     the safest action is to remove all power. GPU workloads are
+     expendable; human safety and equipment protection are not.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* De-energize ALL relays — maximum safe state *)
+FOR _i := 1 TO C_MAX_ZONES DO
+    bRelay[_i] := FALSE;
+    astZoneStatus[_i].bRelayEnergized := FALSE;
+END_FOR
+
+(* Safety state: tripped *)
+_bSafetyPermit := FALSE;
+_eSafetyState := E_SafetyState.TRIPPED;
+bSystemArmed := FALSE;
+
+M_SafeState := TRUE;

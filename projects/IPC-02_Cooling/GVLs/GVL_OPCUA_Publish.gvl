@@ -1,0 +1,125 @@
+(* =============================================================================
+    GVL_OPCUA_Publish — OPC UA Exposed Variables
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     All variables in this GVL are exposed to the OPC UA server via
+     CODESYS symbol configuration. External clients (edge gateway,
+     SCADA, digital twin) read/write these variables.
+   
+   HOW IT WORKS:
+     1. Communication_Task copies data FROM GVL_CrossTask INTO this GVL
+     2. OPC UA server reads these variables (asynchronous, on client request)
+     3. OPC UA clients write setpoints/commands to VAR_CONFIG section
+     4. Communication_Task copies commands FROM this GVL TO GVL_CrossTask
+   
+   NAMING CONVENTION:
+     Variable names here become OPC UA browse names.
+     Hierarchy is created by the '.' separator in the variable name.
+     Example: Cooling_CDU_01_SupplyTemp → OPC UA node: Cooling/CDU_01/SupplyTemp
+   
+   SYMBOL CONFIG:
+     In CODESYS: Project → Symbol Configuration → Add GVL_OPCUA_Publish
+     Set access: Read for status, ReadWrite for setpoints/commands.
+   
+   SECURITY:
+     Setpoints and commands are in a separate section with explicit
+     'readwrite' access. Status variables are read-only.
+   ============================================================================= *)
+
+{attribute 'symbol' := 'read'}
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* ═══════════════════════════════════════════════════════════════════════
+       COOLING SYSTEM — Read-Only Status
+       ═══════════════════════════════════════════════════════════════════════ *)
+    
+    (* --- CDU 01 --- *)
+    Cooling_CDU_01_State         : USINT;       (* E_CDU_State as integer *)
+    Cooling_CDU_01_Mode          : USINT;       (* E_CDU_Mode as integer *)
+    Cooling_CDU_01_Healthy       : BOOL;
+    Cooling_CDU_01_SupplyTemp    : REAL;        (* [°C] *)
+    Cooling_CDU_01_ReturnTemp    : REAL;        (* [°C] *)
+    Cooling_CDU_01_DeltaT        : REAL;        (* [°C] *)
+    Cooling_CDU_01_FlowRate      : REAL;        (* [LPM] *)
+    Cooling_CDU_01_Pressure      : REAL;        (* [bar] *)
+    Cooling_CDU_01_PumpSpeed     : REAL;        (* [%] *)
+    Cooling_CDU_01_ValvePos      : REAL;        (* [%] *)
+    Cooling_CDU_01_Capacity_kW   : REAL;        (* [kW] *)
+    Cooling_CDU_01_PumpRunning   : BOOL;
+    Cooling_CDU_01_AtCapacity    : BOOL;
+    Cooling_CDU_01_RunHours      : UDINT;       (* [hours] *)
+    Cooling_CDU_01_StartCount    : UDINT;
+    
+    (* --- CDU 01 Alarms --- *)
+    Cooling_CDU_01_Alm_TempHigh  : BOOL;
+    Cooling_CDU_01_Alm_FlowLow  : BOOL;
+    Cooling_CDU_01_Alm_Leak      : BOOL;
+    Cooling_CDU_01_Alm_PumpFault : BOOL;
+    Cooling_CDU_01_Alm_Pressure  : BOOL;
+    Cooling_CDU_01_Alm_GPUWarn   : BOOL;
+    
+    (* --- CDU 02 (same structure) --- *)
+    Cooling_CDU_02_State         : USINT;
+    Cooling_CDU_02_Mode          : USINT;
+    Cooling_CDU_02_Healthy       : BOOL;
+    Cooling_CDU_02_SupplyTemp    : REAL;
+    Cooling_CDU_02_ReturnTemp    : REAL;
+    Cooling_CDU_02_DeltaT        : REAL;
+    Cooling_CDU_02_FlowRate      : REAL;
+    Cooling_CDU_02_Pressure      : REAL;
+    Cooling_CDU_02_PumpSpeed     : REAL;
+    Cooling_CDU_02_ValvePos      : REAL;
+    Cooling_CDU_02_Capacity_kW   : REAL;
+    Cooling_CDU_02_PumpRunning   : BOOL;
+    Cooling_CDU_02_AtCapacity    : BOOL;
+    
+    (* --- System Totals --- *)
+    Cooling_TotalCapacity_kW     : REAL;        (* Sum of all CDU capacity *)
+    Cooling_FreeCoolingActive    : BOOL;        (* Economizer mode active *)
+    Cooling_GPU_MaxTemp          : REAL;        (* Highest GPU temp across all zones [°C] *)
+    Cooling_GPU_TotalPower_kW    : REAL;        (* Total GPU power [kW] *)
+    
+    (* ═══════════════════════════════════════════════════════════════════════
+       SAFETY SYSTEM — Read-Only Status
+       ═══════════════════════════════════════════════════════════════════════ *)
+    Safety_SystemArmed           : BOOL;
+    Safety_AnyZoneTripped        : BOOL;
+    Safety_TrippedZoneCount      : USINT;
+    Safety_InputFault            : BOOL;
+    Safety_Permit                : BOOL;
+    
+    (* ═══════════════════════════════════════════════════════════════════════
+       SYSTEM DIAGNOSTICS — Read-Only
+       ═══════════════════════════════════════════════════════════════════════ *)
+    System_Heartbeat_Control     : UDINT;       (* Control_Task heartbeat *)
+    System_Heartbeat_Comm        : UDINT;       (* Communication_Task heartbeat *)
+    System_Heartbeat_Safety      : UDINT;       (* Safety_Task heartbeat *)
+    System_PublishRate_Hz        : REAL;         (* Actual publish rate *)
+    System_PublishErrors         : UDINT;       (* Cumulative publish errors *)
+    System_ActivePublishers      : USINT;       (* Connected publisher count *)
+END_VAR
+
+{attribute 'symbol' := 'readwrite'}
+VAR_GLOBAL
+    (* ═══════════════════════════════════════════════════════════════════════
+       SETPOINTS & COMMANDS — Read-Write (from SCADA/cloud)
+       ═══════════════════════════════════════════════════════════════════════ *)
+    
+    (* --- CDU Setpoints (operator adjustable) --- *)
+    Cmd_CDU_01_SupplyTempSP      : REAL := 35.0;    (* Supply temp setpoint [°C] *)
+    Cmd_CDU_01_Enable            : BOOL := TRUE;     (* CDU enable command *)
+    Cmd_CDU_01_Mode              : USINT := 0;       (* Requested mode *)
+    Cmd_CDU_01_ManualMode        : BOOL := FALSE;    (* Manual override *)
+    Cmd_CDU_01_ManualPumpSpeed   : REAL := 0.0;      (* Manual pump [%] *)
+    Cmd_CDU_01_ManualValvePos    : REAL := 0.0;      (* Manual valve [%] *)
+    
+    Cmd_CDU_02_SupplyTempSP      : REAL := 35.0;
+    Cmd_CDU_02_Enable            : BOOL := TRUE;
+    Cmd_CDU_02_Mode              : USINT := 0;
+    
+    (* --- System Commands --- *)
+    Cmd_System_Reset             : BOOL := FALSE;    (* Global fault reset *)
+    Cmd_EmergencyCool            : BOOL := FALSE;    (* Force all CDUs to MAX_COOL *)
+END_VAR

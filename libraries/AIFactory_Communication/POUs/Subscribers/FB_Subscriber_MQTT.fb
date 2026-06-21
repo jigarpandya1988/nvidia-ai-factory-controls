@@ -1,0 +1,112 @@
+(* =============================================================================
+    FB_Subscriber_MQTT — MQTT Data Subscriber
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataSubscriber for receiving data via MQTT.
+     Used for:
+       • Cloud commands (setpoint changes from SCADA/DCIM)
+       • GPU telemetry (DCGM data published by edge gateway)
+       • Inter-site data exchange
+       • Digital twin commands (Omniverse → PLC)
+   
+   TOPIC STRUCTURE:
+     Subscribe topics configured as array. Supports wildcards:
+       'aifactory/+/cmd/#'        — All commands for this site
+       'gpu/+/telemetry'          — GPU telemetry from all racks
+       'cloud/setpoints/cooling'  — Cloud-issued cooling setpoints
+   
+   PAYLOAD FORMAT:
+     JSON: {"value": 35.2, "quality": 0, "timestamp": 1717000000000}
+     Or Sparkplug B binary (decoded by MQTT library)
+   
+   REQUIRES:
+     CODESYS IoT MQTT library (IoDrvMQTTClient or MQTT.MQTTClient)
+   
+   THREAD SAFETY:
+     Runs in Communication_Task only. Received values stored in
+     internal buffer, copied to GVL_CrossTask at end of cycle.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Subscriber_MQTT IMPLEMENTS I_DataSubscriber
+VAR_INPUT
+    (* --- Broker Configuration --- *)
+    sBrokerURL           : STRING(128) := 'tcp://192.168.200.10:1883';
+    sClientID            : STRING(64) := 'IPC-02-SUB';
+    sUsername            : STRING(64) := '';
+    sPassword            : STRING(64) := '';
+    bUseTLS              : BOOL := FALSE;
+    
+    (* --- Subscription Topics (up to 16) --- *)
+    asTopics             : ARRAY[1..16] OF STRING(128);
+    nTopicCount          : USINT := 0;
+    
+    (* --- QoS --- *)
+    nQoS                 : USINT := 1;      (* 1 = at-least-once for commands *)
+    
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.1;
+    nStaleTimeout_ms     : UDINT := 10000;  (* 10s without update = stale *)
+END_VAR
+
+VAR
+    _bConnected          : BOOL;
+    _nSubscriptionCount  : UDINT;
+    _nStaleCount         : UDINT;
+    
+    (* --- Received Data Buffer --- *)
+    (* Stores last received value per subscription path.
+       Communication_Task reads these and writes to GVL_CrossTask. *)
+    _astReceivedData     : ARRAY[1..64] OF ST_Subscription;
+    _nReceivedCount      : UINT;
+    
+    (* --- Connection Management --- *)
+    _tonReconnect        : TON;
+    _tReconnectInterval  : TIME := T#5S;
+    _bConnectRequested   : BOOL;
+    _nReconnectAttempts  : UINT;
+    
+    (* --- Edge Triggers --- *)
+    _rtrigConnected      : R_TRIG;          (* Connection established *)
+    _ftrigDisconnected   : F_TRIG;          (* Connection lost *)
+    
+    (* --- Statistics --- *)
+    _nMessagesReceived   : UDINT;           (* Total messages received *)
+    _nParseErrors        : UDINT;           (* Messages that failed to parse *)
+    _nLastReceiveTime_ms : UDINT;           (* Time of last message *)
+    
+    (* --- MQTT Client (from CODESYS IoT library) --- *)
+    (* _fbMqttClient     : MQTT.MQTTClient;  -- uncomment when library imported *)
+    (* _fbMqttSubscribe  : MQTT.MQTTSubscribe; *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* --- Edge detection on connection state --- *)
+_rtrigConnected(CLK := _bConnected);
+_ftrigDisconnected(CLK := _bConnected);
+
+(* --- Reconnection logic --- *)
+IF _bConnectRequested AND NOT _bConnected THEN
+    _tonReconnect(IN := TRUE, PT := _tReconnectInterval);
+    IF _tonReconnect.Q THEN
+        _tonReconnect(IN := FALSE);
+        _nReconnectAttempts := _nReconnectAttempts + 1;
+        (* _fbMqttClient.Connect(sBrokerURL, sClientID, ...); *)
+    END_IF
+ELSE
+    _tonReconnect(IN := FALSE);
+END_IF
+
+(* --- Stale detection: check all subscriptions --- *)
+_nStaleCount := 0;
+(* In production: iterate _astReceivedData, check age vs nStaleTimeout_ms *)

@@ -1,0 +1,10 @@
+(* =============================================================================
+    FB_Base.bIsReady — I_Controllable Property Implementation
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+(* ═══ DECLARATION ═══ *)
+PROPERTY bIsReady : BOOL
+
+(* ═══ IMPLEMENTATION (GET) ═══ *)
+bIsReady := bReady;

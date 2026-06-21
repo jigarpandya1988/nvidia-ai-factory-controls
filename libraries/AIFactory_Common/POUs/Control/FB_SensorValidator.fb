@@ -1,0 +1,84 @@
+(* =============================================================================
+    FB_SensorValidator — Input Signal Validation & Filtering
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Validates raw analog sensor inputs before they reach control logic.
+     Implements defense-in-depth for sensor data:
+       1. Range check (physical limits)
+       2. Rate-of-change check (spike/noise rejection)
+       3. Redundancy voting (if dual sensors available)
+       4. First-order low-pass filtering
+       5. Stale-data detection (frozen signal)
+   
+   SAFETY PRINCIPLE:
+     Control logic NEVER reads raw I/O directly. Every sensor passes
+     through this FB. If validation fails, output.bValid = FALSE and
+     output.fValue = configured fallback (safe value).
+   
+   RACE CONDITION PREVENTION:
+     • One instance per sensor, owned by one task.
+     • Output struct (ST_SensorInput) is copied atomically to shared memory
+       by the owning task — never written field-by-field across tasks.
+   
+   USAGE:
+     fbTempSensor(
+         fRawInput := IO_Module.AI_Temperature,
+         stConfig  := stTempSensorConfig
+     );
+     // Use fbTempSensor.stOutput.fValue only if fbTempSensor.stOutput.bValid
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_SensorValidator EXTENDS FB_Base
+VAR_INPUT
+    fRawInput            : REAL;            (* Raw analog value from I/O module *)
+    fRawInput_Redundant  : REAL;            (* Redundant sensor (0.0 if unused) *)
+    bUseRedundancy       : BOOL;            (* TRUE = dual-sensor voting active *)
+    fCycleTime_s         : REAL := 0.005;   (* Task cycle time [seconds] *)
+    
+    (* --- Configuration (typically set once at startup) --- *)
+    fRangeLow            : REAL := 0.0;     (* Physical minimum [eng. units] *)
+    fRangeHigh           : REAL := 100.0;   (* Physical maximum [eng. units] *)
+    fMaxRateOfChange     : REAL := 50.0;    (* Max valid rate [units/s]; 0=off *)
+    fRedundancyTolerance : REAL := 2.0;     (* Max diff between sensors [units] *)
+    fFilterTimeConst     : REAL := 0.5;     (* Low-pass filter tau [seconds] *)
+    fFallbackValue       : REAL := 0.0;     (* Value when invalid *)
+    fFrozenTimeout_s     : REAL := 30.0;    (* Frozen signal timeout [seconds] *)
+    sTag                 : STRING(32) := 'UNNAMED'; (* Sensor tag for diagnostics *)
+END_VAR
+
+VAR_OUTPUT
+    stOutput             : ST_SensorInput;  (* Validated output structure *)
+    bAlm_OutOfRange      : BOOL;            (* Value outside physical limits *)
+    bAlm_RateExceeded    : BOOL;            (* Spike/noise detected *)
+    bAlm_RedundancyFault : BOOL;            (* Dual sensors disagree *)
+    bAlm_Frozen          : BOOL;            (* Signal not changing (stuck) *)
+END_VAR
+
+VAR
+    _fPrevValue          : REAL;            (* Previous scan value for rate calc *)
+    _fFiltered           : REAL;            (* Filtered output *)
+    _fFilterAlpha        : REAL;            (* Computed filter coefficient *)
+    _fFrozenTimer_s      : REAL;            (* Accumulates time signal unchanged *)
+    _fFrozenLastValue    : REAL;            (* Last value that was different *)
+    _nFaultCount         : UINT;            (* Consecutive fault counter *)
+    _nMaxFaultCount      : UINT := 10;      (* Faults before declaring invalid *)
+    _bFirstScan          : BOOL := TRUE;    (* First-scan initialization flag *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Call base class — handles lifecycle, heartbeat, enable/fault gates *)
+SUPER^();
+
+(* NOTE: Actual sensor logic is in M_Execute override below.
+   This body only calls the base class. All work is in the virtual methods. *)

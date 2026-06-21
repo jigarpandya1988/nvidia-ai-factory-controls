@@ -1,0 +1,33 @@
+(* =============================================================================
+    FB_SensorValidator.M_SafeState — Mark Output Invalid
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   When disabled or faulted, sensor output is explicitly marked INVALID
+   with fallback value. Downstream control logic sees bValid=FALSE and
+   must use its own safe-state logic.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+stOutput.fValue := fFallbackValue;
+stOutput.bValid := FALSE;
+stOutput.bFresh := FALSE;
+stOutput.eQuality := E_CommStatus.FAULT;
+
+bAlm_OutOfRange := FALSE;
+bAlm_RateExceeded := FALSE;
+bAlm_RedundancyFault := FALSE;
+bAlm_Frozen := FALSE;
+
+M_SafeState := TRUE;

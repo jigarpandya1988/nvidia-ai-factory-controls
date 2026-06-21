@@ -1,0 +1,44 @@
+(* =============================================================================
+    FB_Base.M_SetFault — Protected: Latch a Fault Condition
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED BY:
+     Derived FBs when they detect an unrecoverable condition.
+   
+   BEHAVIOR:
+     • Latches _bFaultLatched = TRUE
+     • Stores human-readable message for HMI/OPC UA
+     • Sets lifecycle to FAULT
+     • On NEXT scan, base class will call M_SafeState()
+   
+   RECOVERY:
+     Only a rising edge on bReset input clears the latch.
+     This ensures an operator has acknowledged the fault.
+   
+   USAGE EXAMPLE (in derived M_Execute):
+     IF fTemperature > 150.0 THEN
+         THIS^.M_SetFault('Sensor T1 exceeded physical maximum (150°C)');
+     END_IF
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD PROTECTED M_SetFault
+VAR_INPUT
+    sMessage : STRING(128);     (* Fault description for operator *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+_bFaultLatched := TRUE;
+sFaultMessage := sMessage;
+eLifecycle := E_Lifecycle.FAULT;
+bHealthy := FALSE;
+bReady := FALSE;

@@ -1,0 +1,46 @@
+(* =============================================================================
+    FB_DataCollector.M_UpdateValue — Update a Data Point's Current Value
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     By the Communication_Task after copying data from GVL_CrossTask.
+     This feeds the publish engine with fresh process values.
+   
+   USAGE:
+     // After reading CDU status from GVL:
+     fbDataCollector.M_UpdateValue(
+         nIndex := nIdx_SupplyTemp,
+         fValue := GVL_CrossTask.stCDU_01_Status.fSupplyTemp,
+         nQuality := 0
+     );
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_UpdateValue : BOOL
+VAR_INPUT
+    nIndex       : UINT;        (* Point index from M_RegisterPoint *)
+    fValue       : REAL;        (* New value *)
+    nQuality     : USINT;       (* Quality: 0=Good, 1=Uncertain, 2=Bad *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Bounds check *)
+IF nIndex < 1 OR nIndex > _nPointCount THEN
+    M_UpdateValue := FALSE;
+    RETURN;
+END_IF
+
+(* Update the current value and quality *)
+_astPoints[nIndex].fCurrentValue := fValue;
+_astPoints[nIndex].nQuality := nQuality;
+
+M_UpdateValue := TRUE;

@@ -1,0 +1,44 @@
+(* =============================================================================
+    FB_Base.M_SafeState — Virtual: Enforce Fail-Safe Outputs
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     • Every scan when bEnable = FALSE
+     • Every scan when _bFaultLatched = TRUE
+     • On transition from RUNNING to any non-running state
+   
+   OVERRIDE IN DERIVED FB TO:
+     • Set ALL analog outputs to 0% (or defined minimum safe value)
+     • De-energize ALL digital outputs (fail-safe = de-energized)
+     • Close isolation valves (or open, depending on fail-safe design)
+     • Stop all motors/pumps
+     • Clear any pending commands
+   
+   CRITICAL SAFETY REQUIREMENT:
+     This method MUST be IDEMPOTENT — calling it multiple times in
+     succession must produce the same result as calling it once.
+     It MUST NOT depend on any internal state that could be corrupted.
+   
+   DESIGN RULE:
+     Derived classes MUST override this. A FB that cannot define its
+     safe-state is not safe to deploy. The base no-op is intentionally
+     insufficient — it serves as a reminder to implement.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* Base implementation: no-op.
+   WARNING: Derived classes MUST override this with actual safe-state logic.
+   Leaving this as-is means outputs are UNDEFINED in fault/disabled state. *)
+M_SafeState := TRUE;

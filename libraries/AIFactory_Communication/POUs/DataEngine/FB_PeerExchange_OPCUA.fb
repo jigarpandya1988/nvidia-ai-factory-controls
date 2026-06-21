@@ -1,0 +1,98 @@
+(* =============================================================================
+    FB_PeerExchange_OPCUA — OPC UA Direct Peer-to-Peer Exchange
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_PeerExchange using OPC UA client/server.
+     Each IPC runs an OPC UA server exposing its ST_PeerData.
+     Each IPC runs OPC UA clients reading peers' ST_PeerData.
+   
+   HOW IT WORKS:
+     SEND: Write local ST_PeerData to GVL_PeerExchange.stMyData
+           (OPC UA server exposes this variable automatically)
+     
+     RECEIVE: OPC UA client reads peer's stMyData variable every cycle.
+              Result stored in GVL_PeerExchange.stPeer[n]_Data.
+   
+   LATENCY:
+     OPC UA subscription at 5ms publishing interval → ~5-10ms latency.
+     Acceptable for safety permit (< 10ms requirement).
+     For sub-millisecond: use FB_PeerExchange_UDP instead.
+   
+   FAILOVER:
+     If peer OPC UA server unreachable for > nTimeout_ms:
+       • Mark peer as DEAD
+       • Safety data: assume worst case (permit = FALSE)
+       • Operational data: use last-known-good with STALE quality
+   
+   TOPOLOGY:
+     IPC-01 ←──OPC UA──→ IPC-02
+       ↕                    ↕
+     IPC-04 ←──OPC UA──→ IPC-03
+     
+     Full mesh: each IPC connects to all other 3.
+     N*(N-1) = 4*3 = 12 OPC UA client connections total.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+{attribute 'no_assign'}
+FUNCTION_BLOCK FB_PeerExchange_OPCUA EXTENDS FB_Base IMPLEMENTS I_PeerExchange
+VAR_INPUT
+    (* --- Local IPC Identity --- *)
+    nMyIPC_ID            : USINT := 2;      (* This IPC's ID (1-4) *)
+    
+    (* --- Peer Configuration --- *)
+    asPeerURLs           : ARRAY[1..4] OF STRING(128);  (* OPC UA URLs *)
+    asPeerNames          : ARRAY[1..4] OF STRING(32);   (* Logical names *)
+    
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.005;   (* Control task cycle *)
+    nTimeout_ms          : UDINT := 50;     (* Peer timeout [ms] *)
+    nSubscriptionRate_ms : UDINT := 5;      (* OPC UA subscription interval *)
+END_VAR
+
+VAR_OUTPUT
+    (* --- Received Peer Data (one per peer IPC) --- *)
+    astPeerData          : ARRAY[1..4] OF ST_PeerData;
+    abPeerAlive          : ARRAY[1..4] OF BOOL;
+    anPeerLatency_us     : ARRAY[1..4] OF UDINT;
+    
+    (* --- Aggregate Safety (pessimistic across all peers) --- *)
+    bAllPeersSafetyOK    : BOOL;            (* TRUE only if ALL peers permit *)
+    bAnyPeerEmergency    : BOOL;            (* TRUE if ANY peer has emergency *)
+    bAnyPeerDead         : BOOL;            (* TRUE if ANY peer not responding *)
+    
+    (* --- My Published Data (what this IPC sends to peers) --- *)
+    stMyData             : ST_PeerData;
+END_VAR
+
+VAR
+    (* --- Per-Peer Connection State --- *)
+    _abConnected         : ARRAY[1..4] OF BOOL;
+    _anTimeSinceUpdate   : ARRAY[1..4] OF UDINT;  (* ms since last receive *)
+    _anLastSequence      : ARRAY[1..4] OF UDINT;  (* Last received sequence # *)
+    _anMissedPackets     : ARRAY[1..4] OF UDINT;  (* Gap in sequence counter *)
+    
+    (* --- Edge Triggers --- *)
+    _artrigPeerLost      : ARRAY[1..4] OF R_TRIG; (* Peer went offline *)
+    _artrigPeerFound     : ARRAY[1..4] OF R_TRIG; (* Peer came back online *)
+    _rtrigEmergency      : R_TRIG;                (* Any peer raised emergency *)
+    
+    (* --- Sequence Counter --- *)
+    _nMySequence         : UDINT;
+    
+    (* --- Loop Variable --- *)
+    _i                   : USINT;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+SUPER^();

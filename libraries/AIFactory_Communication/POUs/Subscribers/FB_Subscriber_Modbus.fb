@@ -1,0 +1,104 @@
+(* =============================================================================
+    FB_Subscriber_Modbus — Modbus TCP Master (Client) Subscriber
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Implements I_DataSubscriber by polling Modbus TCP slave devices.
+     Used to collect data from:
+       • Energy meters (Schneider PM5xxx, ABB M4M)
+       • UPS systems (Vertiv/Eaton Modbus interface)
+       • PDU intelligent panels
+       • CDU controllers (if not on EtherCAT)
+       • ATS controllers
+   
+   POLLING MODEL:
+     Maintains a list of Modbus read requests (device, register, count).
+     Cycles through requests in round-robin fashion.
+     Each poll result is stored with timestamp for freshness tracking.
+   
+   REGISTER INTERPRETATION:
+     • Holding Registers (FC03): most common for read data
+     • Input Registers (FC04): read-only process values
+     • REAL values: 2 consecutive registers, IEEE 754 float (big-endian)
+     • BOOL values: individual bits within a register (coils FC01)
+   
+   REQUIRES:
+     CODESYS Modbus TCP Master device in project tree.
+     Or: ModbusFB library (Modbus.ModbusTCPMaster)
+   
+   PERFORMANCE:
+     At 100ms cycle, one poll per scan = 10 polls/s per device.
+     With 5 devices × 10 registers each = can poll all within 5 seconds.
+     Configurable: nMaxPollsPerCycle controls throughput.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+FUNCTION_BLOCK FB_Subscriber_Modbus IMPLEMENTS I_DataSubscriber
+VAR_INPUT
+    (* --- Timing --- *)
+    fCycleTime_s         : REAL := 0.1;
+    nMaxPollsPerCycle    : USINT := 2;      (* Max Modbus transactions per scan *)
+    nStaleTimeout_ms     : UDINT := 5000;   (* 5s without response = stale *)
+END_VAR
+
+VAR
+    _bConnected          : BOOL := TRUE;    (* "Connected" if any device responding *)
+    _nSubscriptionCount  : UDINT;
+    _nStaleCount         : UDINT;
+    
+    (* --- Poll Request Table --- *)
+    _astPollRequests     : ARRAY[1..32] OF ST_ModbusPollRequest;
+    _nPollCount          : USINT;
+    _nCurrentPoll        : USINT;           (* Round-robin index *)
+    
+    (* --- Received Data --- *)
+    _astReceivedData     : ARRAY[1..64] OF ST_Subscription;
+    _nReceivedCount      : UINT;
+    
+    (* --- Device Connection Tracking --- *)
+    _abDeviceAlive       : ARRAY[1..8] OF BOOL;   (* Per-device health *)
+    _anDeviceErrors      : ARRAY[1..8] OF UINT;   (* Consecutive errors *)
+    _nMaxErrors          : UINT := 5;              (* Errors before marking dead *)
+    
+    (* --- Statistics --- *)
+    _nTotalPolls         : UDINT;
+    _nSuccessfulPolls    : UDINT;
+    _nTimeoutErrors      : UDINT;
+    
+    (* --- Edge Triggers --- *)
+    _rtrigDeviceLost     : ARRAY[1..8] OF F_TRIG;  (* Device went offline *)
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* --- Round-Robin Polling --- *)
+(* Each scan, execute up to nMaxPollsPerCycle Modbus read operations.
+   Advance _nCurrentPoll to next request. Skip devices marked dead. *)
+
+(* In production with CODESYS Modbus library:
+   FOR i := 1 TO nMaxPollsPerCycle DO
+       _nCurrentPoll := _nCurrentPoll + 1;
+       IF _nCurrentPoll > _nPollCount THEN _nCurrentPoll := 1; END_IF
+       
+       IF _abDeviceAlive[_astPollRequests[_nCurrentPoll].nDeviceID] THEN
+           // Execute Modbus FC03 read
+           // On success: update _astReceivedData, reset error count
+           // On timeout: increment error count, mark dead if > _nMaxErrors
+       END_IF
+   END_FOR *)
+
+(* --- Stale Detection --- *)
+_nStaleCount := 0;
+(* Check each subscription's age vs timeout *)
+
+(* --- Connection Status --- *)
+_bConnected := FALSE;
+(* If ANY device is alive, we're "connected" *)

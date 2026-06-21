@@ -1,0 +1,30 @@
+(* =============================================================================
+    ST_AlarmRecord — Single Alarm Instance Data
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Holds complete state for one alarm point. Used in alarm buffer arrays
+     and published to OPC UA for SCADA/HMI consumption.
+   
+   THREAD SAFETY:
+     Alarm records are written by the owning task and read (as snapshot copy)
+     by the Communication_Task. The owning task performs atomic struct copy
+     to a shared exchange buffer — never field-by-field writes.
+   ============================================================================= *)
+
+TYPE ST_AlarmRecord :
+STRUCT
+    nID                 : UDINT;            (* Unique alarm identifier *)
+    eSeverity           : E_AlarmSeverity;  (* Alarm priority class *)
+    sSource             : STRING(64);       (* Originating IPC/device name *)
+    sMessage            : STRING(255);      (* Human-readable alarm text *)
+    dtRaised            : DT;               (* Timestamp when condition became TRUE *)
+    dtCleared           : DT;               (* Timestamp when condition returned to normal *)
+    dtAcknowledged      : DT;               (* Timestamp when operator acknowledged *)
+    bActive             : BOOL;             (* Alarm condition currently present *)
+    bAcknowledged       : BOOL;             (* Operator has acknowledged *)
+    bLatched            : BOOL;             (* Requires manual reset even after clear *)
+    nOccurrenceCount    : UDINT;            (* Number of times raised since last reset *)
+END_STRUCT
+END_TYPE

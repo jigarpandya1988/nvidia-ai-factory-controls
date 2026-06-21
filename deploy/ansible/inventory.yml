@@ -1,0 +1,47 @@
+# =============================================================================
+# Ansible Inventory — NVIDIA AI Factory IPCs
+# =============================================================================
+
+all:
+  vars:
+    ansible_user: deploy
+    ansible_ssh_private_key_file: ~/.ssh/aifactory_deploy
+    ansible_python_interpreter: /usr/bin/python3
+    rt_kernel_version: "6.1.0-rt"
+
+  children:
+    ipcs:
+      hosts:
+        ipc-power-01:
+          ansible_host: 192.168.100.10
+          ipc_role: power
+          ipc_id: "IPC-01"
+          codesys_node_name: "PowerControl"
+
+        ipc-cooling-01:
+          ansible_host: 192.168.100.20
+          ipc_role: cooling
+          ipc_id: "IPC-02"
+          codesys_node_name: "CoolingControl"
+
+        ipc-environ-01:
+          ansible_host: 192.168.100.30
+          ipc_role: environment
+          ipc_id: "IPC-03"
+          codesys_node_name: "EnvironMonitor"
+
+        ipc-safety-01:
+          ansible_host: 192.168.100.40
+          ipc_role: safety
+          ipc_id: "IPC-04"
+          codesys_node_name: "SafetySystems"
+
+    edge_gateways:
+      hosts:
+        edge-gw-01:
+          ansible_host: 192.168.100.100
+          role: primary
+
+        edge-gw-02:
+          ansible_host: 192.168.100.101
+          role: standby

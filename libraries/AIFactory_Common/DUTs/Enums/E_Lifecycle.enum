@@ -1,0 +1,30 @@
+(* =============================================================================
+    E_Lifecycle — Function Block Lifecycle States
+    Common Library | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   PURPOSE:
+     Every FB derived from FB_Base reports its lifecycle state.
+     Enables centralized health monitoring and diagnostics via OPC UA.
+   
+   STATE TRANSITIONS:
+     DISABLED ──(bEnable)──→ INIT ──(M_Initialize done)──→ RUNNING
+     RUNNING  ──(fault)────→ FAULT ──(bReset rising)─────→ INIT
+     RUNNING  ──(!bEnable)─→ DISABLED
+     FAULT    ──(!bEnable)─→ DISABLED
+   
+   SAFETY NOTE:
+     DISABLED and FAULT states ALWAYS enforce safe-state outputs.
+     Only RUNNING state permits active control output generation.
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_Lifecycle :
+(
+    DISABLED    := 0,   (* FB not enabled; outputs held in safe-state *)
+    INIT        := 1,   (* One-shot initialization in progress *)
+    RUNNING     := 2,   (* Normal cyclic execution *)
+    FAULT       := 3    (* Fault latched; outputs in safe-state; awaiting reset *)
+);
+END_TYPE

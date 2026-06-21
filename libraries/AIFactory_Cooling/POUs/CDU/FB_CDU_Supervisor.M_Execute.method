@@ -1,0 +1,136 @@
+(* =============================================================================
+    FB_CDU_Supervisor.M_Execute — N+1 CDU Management Logic
+    IPC-02: Cooling Control | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   CALLED:
+     Every scan when: bEnable=TRUE AND initialized AND no fault latched.
+   
+   LOGIC:
+     1. Initial assignment of lead/standby if not yet done
+     2. Monitor lead CDU health — trigger switchover on fault
+     3. Execute switchover sequence (within 5 seconds)
+     4. Lead/lag rotation at configurable interval
+     5. Drive CDU enable outputs
+     6. Detect all-CDU emergency
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_Execute : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* ─── STEP 1: Initial Assignment ────────────────────────────────────────────── *)
+IF NOT _bAssigned THEN
+    (* Assign first healthy CDU as lead, second as standby *)
+    nLeadCDU := 0;
+    nStandbyCDU := 0;
+    
+    FOR _i := 1 TO nTotalCDUs DO
+        IF astCDU_Status[_i].bHealthy THEN
+            IF nLeadCDU = 0 THEN
+                nLeadCDU := _i;
+            ELSIF nStandbyCDU = 0 THEN
+                nStandbyCDU := _i;
+            END_IF
+        END_IF
+    END_FOR
+    
+    IF nLeadCDU > 0 THEN
+        _bAssigned := TRUE;
+    END_IF
+END_IF
+
+(* ─── STEP 2: Count Healthy CDUs ───────────────────────────────────────────── *)
+nHealthyCDUCount := 0;
+FOR _i := 1 TO nTotalCDUs DO
+    IF astCDU_Status[_i].bHealthy THEN
+        nHealthyCDUCount := nHealthyCDUCount + 1;
+    END_IF
+END_FOR
+
+(* ─── STEP 3: Emergency Detection (ALL CDUs faulted) ────────────────────────── *)
+bEmergency := (nHealthyCDUCount = 0) AND _bAssigned;
+
+(* ─── STEP 4: Lead CDU Fault Detection ──────────────────────────────────────── *)
+IF nLeadCDU > 0 THEN
+    _bLeadFaultDetected := NOT astCDU_Status[nLeadCDU].bHealthy;
+ELSE
+    _bLeadFaultDetected := FALSE;
+END_IF
+
+(* R_TRIG for switchover trigger *)
+_rtrigLeadFault(CLK := _bLeadFaultDetected);
+
+(* Initiate switchover on rising edge of lead fault *)
+IF _rtrigLeadFault.Q AND NOT _bSwitchoverPending THEN
+    _bSwitchoverPending := TRUE;
+    _fSwitchoverAccum := 0.0;
+    
+    (* Find a healthy standby to promote *)
+    _nNewLead := 0;
+    FOR _i := 1 TO nTotalCDUs DO
+        IF _i <> nLeadCDU AND astCDU_Status[_i].bHealthy THEN
+            _nNewLead := _i;
+            EXIT;
+        END_IF
+    END_FOR
+END_IF
+
+(* ─── STEP 5: Execute Switchover ────────────────────────────────────────────── *)
+IF _bSwitchoverPending THEN
+    bSwitchoverActive := TRUE;
+    _fSwitchoverAccum := _fSwitchoverAccum + fCycleTime_s;
+    
+    IF _nNewLead > 0 THEN
+        (* Promote new lead *)
+        nStandbyCDU := nLeadCDU;    (* Demote old lead to standby *)
+        nLeadCDU := _nNewLead;      (* Promote new lead *)
+        _bSwitchoverPending := FALSE;
+        bSwitchoverActive := FALSE;
+    ELSIF _fSwitchoverAccum >= fSwitchoverTimeout_s THEN
+        (* Switchover timeout — no healthy standby found *)
+        _bSwitchoverPending := FALSE;
+        bSwitchoverActive := FALSE;
+        (* Emergency will be caught by healthy count check above *)
+    END_IF
+ELSE
+    bSwitchoverActive := FALSE;
+END_IF
+
+(* ─── STEP 6: Lead/Lag Rotation ─────────────────────────────────────────────── *)
+_fRotationInterval_s := fRotationInterval_h * 3600.0;
+
+IF NOT _bSwitchoverPending AND nLeadCDU > 0 AND nStandbyCDU > 0 THEN
+    _fRotationAccum_s := _fRotationAccum_s + fCycleTime_s;
+    
+    IF _fRotationAccum_s >= _fRotationInterval_s THEN
+        (* Rotation: only if both lead and standby are healthy *)
+        IF astCDU_Status[nLeadCDU].bHealthy AND astCDU_Status[nStandbyCDU].bHealthy THEN
+            (* Swap lead and standby *)
+            _i := nLeadCDU;
+            nLeadCDU := nStandbyCDU;
+            nStandbyCDU := _i;
+        END_IF
+        _fRotationAccum_s := 0.0;
+    END_IF
+END_IF
+
+(* ─── STEP 7: Drive CDU Enable Outputs ──────────────────────────────────────── *)
+FOR _i := 1 TO 8 DO
+    IF _i <= nTotalCDUs THEN
+        (* Enable lead CDU, standby CDU enabled but in standby mode *)
+        abCDU_Enable[_i] := (_i = nLeadCDU) OR (_i = nStandbyCDU);
+    ELSE
+        abCDU_Enable[_i] := FALSE;
+    END_IF
+END_FOR
+
+M_Execute := TRUE;

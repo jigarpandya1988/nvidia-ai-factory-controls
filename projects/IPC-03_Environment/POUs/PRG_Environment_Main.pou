@@ -1,0 +1,71 @@
+(* =============================================================================
+    PRG_Environment_Main — IPC-03 Monitoring Task Main Program
+    IPC-03: Environment Monitor | NVIDIA AI Factory Controls
+   =============================================================================
+   
+   TASK: Monitor_Task — Priority 3, Cycle 100ms
+   
+   PURPOSE:
+     Monitors all environmental zones (temperature, humidity, dew point).
+     Slower cycle is acceptable — environment changes slowly.
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+PROGRAM PRG_Environment_Main
+VAR
+    fbZone_01            : FB_EnvironmentZone;
+    fbZone_02            : FB_EnvironmentZone;
+    fbZone_03            : FB_EnvironmentZone;
+    fbZone_04            : FB_EnvironmentZone;
+END_VAR
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+fbZone_01(
+    fRaw_Temp1 := 0.0,     (* TODO: Map to Modbus/BACnet sensors *)
+    fRaw_Temp2 := 0.0,
+    fRaw_Humidity := 0.0,
+    fRaw_Particles := 0.0,
+    sZoneName := 'Hall_A_Row_01',
+    fCycleTime_s := 0.1,
+    bEnable := TRUE
+);
+
+fbZone_02(
+    fRaw_Temp1 := 0.0,
+    fRaw_Temp2 := 0.0,
+    fRaw_Humidity := 0.0,
+    fRaw_Particles := 0.0,
+    sZoneName := 'Hall_A_Row_02',
+    fCycleTime_s := 0.1,
+    bEnable := TRUE
+);
+
+fbZone_03(
+    fRaw_Temp1 := 0.0,
+    fRaw_Temp2 := 0.0,
+    fRaw_Humidity := 0.0,
+    fRaw_Particles := 0.0,
+    sZoneName := 'Hall_B_Row_01',
+    fCycleTime_s := 0.1,
+    bEnable := TRUE
+);
+
+fbZone_04(
+    fRaw_Temp1 := 0.0,
+    fRaw_Temp2 := 0.0,
+    fRaw_Humidity := 0.0,
+    fRaw_Particles := 0.0,
+    sZoneName := 'Hall_B_Row_02',
+    fCycleTime_s := 0.1,
+    bEnable := TRUE
+);
+
+(* TODO: Write zone statuses to GVL_CrossTask for OPC UA publishing *)

@@ -1,0 +1,25 @@
+(* =============================================================================
+    GVL_Power — Power System Cross-Task Exchange
+    IPC-01: Power Control | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* Power status — written by Control_Task, read by Comm_Task *)
+    stPowerStatus        : ST_PowerStatus;
+    
+    (* Per-PDU data *)
+    afPDU_Current        : ARRAY[1..48] OF REAL;    (* Per-circuit current [A] *)
+    abPDU_BreakerOK      : ARRAY[1..96] OF BOOL;   (* Breaker closed status *)
+    
+    (* UPS *)
+    fUPS_BatterySOC      : REAL;    (* State of charge [%] *)
+    fUPS_RuntimeMin      : REAL;    (* Estimated runtime [minutes] *)
+    bUPS_OnBattery       : BOOL;
+    bUPS_Fault           : BOOL;
+    
+    (* ATS *)
+    bATS_SourceA_OK      : BOOL;    (* Utility feed A healthy *)
+    bATS_SourceB_OK      : BOOL;    (* Utility feed B healthy *)
+    bATS_OnSourceA       : BOOL;    (* Currently using source A *)
+END_VAR

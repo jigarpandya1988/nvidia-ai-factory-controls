@@ -1,0 +1,31 @@
+(* =============================================================================
+    FB_PeerExchange_OPCUA.M_SafeState — Mark All Peers Unknown
+    Common Library | NVIDIA AI Factory Controls
+   ============================================================================= *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   DECLARATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+METHOD M_SafeState : BOOL
+
+
+(* ═══════════════════════════════════════════════════════════════════════════════
+   IMPLEMENTATION
+   ═══════════════════════════════════════════════════════════════════════════════ *)
+
+(* When peer exchange is disabled/faulted: assume worst case *)
+bAllPeersSafetyOK := FALSE;      (* No permit — cannot verify peers *)
+bAnyPeerEmergency := FALSE;      (* Don't false-alarm emergency *)
+bAnyPeerDead := TRUE;            (* All peers considered unreachable *)
+
+FOR _i := 1 TO 4 DO
+    abPeerAlive[_i] := FALSE;
+END_FOR
+
+(* My data: mark as unhealthy so peers know I'm degraded *)
+stMyData.bHealthy := FALSE;
+stMyData.eLifecycle := E_Lifecycle.FAULT;
+
+M_SafeState := TRUE;
