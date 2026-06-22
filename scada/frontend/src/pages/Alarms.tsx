@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlarmRecord } from '../types';
+import { useAuthStore } from '../stores/useAuthStore';
 
 const severityColors = {
   critical: 'bg-red-500/20 border-red-500 text-red-300',
@@ -11,10 +12,17 @@ const severityColors = {
 
 export function Alarms() {
   const [alarms, setAlarms] = useState<AlarmRecord[]>([]);
+  const token = useAuthStore(s => s.token);
 
   useEffect(() => {
-    fetch('/api/alarms').then(r => r.json()).then(setAlarms).catch(() => {});
-  }, []);
+    if (!token) return;
+    fetch(`http://${window.location.hostname}:4000/api/alarms`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(setAlarms)
+      .catch(() => {});
+  }, [token]);
 
   return (
     <div className="p-4 space-y-4">

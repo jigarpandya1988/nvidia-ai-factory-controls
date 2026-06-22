@@ -143,7 +143,9 @@ export async function registerAuth(app: FastifyInstance) {
 export function extractToken(request: FastifyRequest): TokenPayload | null {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
+    const query = request.query as { token?: string } | undefined;
+    if (!query?.token) return null;
+    return verifyToken(query.token);
   }
   const token = authHeader.slice(7);
   return verifyToken(token);
